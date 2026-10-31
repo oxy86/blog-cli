@@ -1,0 +1,20 @@
+# --- Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+
+# --- Personal / site-specific (kept on disk for future sessions, never committed)
+STATUS.md
+*.local.md
+*.local.toml
+local/
+.env
+*.sql
+*.sql.gz
+*.tar.gz
+blog-backups/
+.DS_Store

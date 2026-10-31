@@ -1,0 +1,16 @@
+[project]
+name = "blog"
+version = "0.1.0"
+description = "Swiss-army CLI for a WordPress blog: editorial + maintenance, local or over SSH"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+blog = "blog.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["blog"]
