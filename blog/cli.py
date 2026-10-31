@@ -108,6 +108,11 @@ def build_parser():
     p = add("deploy", maint.cmd_deploy, "copy this tool to the server (so cron can run it locally) and write its config there")
     p.add_argument("--dest", default="~/blog-cli")
     p.add_argument("--write-config", action="store_true", help="overwrite an existing server-side config")
+    p = add("prune-spam-users", maint.cmd_prune_spam_users, "delete subscriber accounts that never posted, commented or logged in (dry run unless --yes; needs a fresh backup)")
+    p.add_argument("--yes", action="store_true")
+    p.add_argument("--keep", type=int, action="append", help="user ID to always keep (repeatable)")
+    p.add_argument("--limit", type=int, help="delete at most N (for a trial run)")
+    p.add_argument("--batch", type=int, default=200)
     p = add("clean-backups", maint.cmd_clean_backups, "delete old backups, keeping the newest N (dry run unless --yes)", aliases=["prune-backups"])
     p.add_argument("--keep", type=int, default=3, help="how many of the newest backups to keep (default 3)")
     p.add_argument("--older-than", type=int, metavar="DAYS", help="only delete backups older than this many days")
@@ -184,6 +189,7 @@ MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
+  blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
   blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive]

@@ -27,7 +27,8 @@
 - [x] `cache purge` (this site's entries only in a shared nginx FastCGI cache)
 - [ ] Install/uninstall helper for the cron job (`blog auto-update --install-cron`, with a dry run and an explicit confirmation)
 - [ ] `security`: core + plugin checksums, admin users, file perms, debug flags, vulnerability-feed lookup (WPScan/Patchstack)
-- [ ] `users prune-spam` (dry-run, backup, batch) and plugin/theme cleanup helpers
+- [x] `prune-spam-users` (never-active subscribers only; dry run by default; needs a recent backup; batched) — trial-tested on 100 accounts
+- [ ] Plugin/theme cleanup helpers (list unused, delete with confirmation)
 - [ ] `db`: size, optimize, `search-replace --dry-run`, autoload report; `log tail`; `cron` health
 - [ ] TLS/certbot/disk warnings in `status` and in the `auto-update` mail
 - [ ] Backup: scheduled runs and an off-server copy

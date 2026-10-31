@@ -629,3 +629,60 @@ def cmd_deploy(ctx, a):
     audit(ctx.site.name, ["deploy", dest])
     out = {"dest": dest, "config_written": wrote, "config": cfg_path, "run": f"{dest}/bin/blog"}
     ctx.emit(out, f"deployed to {ctx.t.host}:{dest}\n  config: {cfg_path} ({'written' if wrote else 'kept existing'})\n  run on the server: {dest}/bin/blog status")
+
+
+# ====================================================================== spam users
+def spam_candidates(ctx, keep=()):
+    """Subscriber-only accounts that have NEVER done anything: no posts, no comments, no login session."""
+    p = ctx.wp.text("db", "prefix")
+    sql = (f"SELECT u.ID FROM {p}users u "
+           f"JOIN {p}usermeta c ON c.user_id=u.ID AND c.meta_key='{p}capabilities' AND c.meta_value='a:1:{{s:10:\"subscriber\";b:1;}}' "
+           f"WHERE NOT EXISTS (SELECT 1 FROM {p}comments cm WHERE cm.user_id=u.ID) "
+           f"AND NOT EXISTS (SELECT 1 FROM {p}posts po WHERE po.post_author=u.ID) "
+           f"AND NOT EXISTS (SELECT 1 FROM {p}usermeta s WHERE s.user_id=u.ID AND s.meta_key='session_tokens' AND s.meta_value<>'') "
+           f"ORDER BY u.ID")
+    ids = [int(x) for x in ctx.wp.text("db", "query", sql, "--skip-column-names").split() if x.strip().isdigit()]
+    return [i for i in ids if i not in set(keep)], p
+
+
+def _recent_backup(ctx, minutes=60):
+    rows = [r for r in list_backups(ctx) if "db.sql.gz" in r["parts"]]
+    if not rows:
+        return None
+    st = _stamp(rows[-1]["name"])
+    return rows[-1] if st and (datetime.now() - st) < timedelta(minutes=minutes) else None
+
+
+def cmd_prune_spam_users(ctx, a):
+    ids, p = spam_candidates(ctx, keep=a.keep or [])
+    total_sub = int(ctx.wp.text("user", "list", "--role=subscriber", "--format=count"))
+    kept = total_sub - len(ids)
+    sample = ctx.wp.json("user", "list", f"--include={','.join(map(str, ids[:6]))}", "--fields=ID,user_login,user_email,user_registered") if ids else []
+    todo = ids[:a.limit] if a.limit else ids
+    info = {"subscribers": total_sub, "will_delete": len(todo), "kept": total_sub - len(todo), "applied": False}
+
+    if not a.yes:
+        def human():
+            print(f"{total_sub} subscriber accounts; {len(ids)} have never posted, commented or logged in.")
+            print(f"  would delete {len(todo)}; the other {total_sub - len(todo)} stay (they have activity"
+                  + (f", or are in --keep" if a.keep else "") + (", or are beyond --limit" if a.limit and len(ids) > a.limit else "") + ").")
+            for u in sample:
+                print(f"    e.g. #{u['ID']} {u['user_login']} <{u['user_email']}> registered {u['user_registered'][:10]}")
+            print("\ndry run — apply with: blog prune-spam-users --yes   (requires a backup from the last hour)")
+        ctx.emit(info, human)
+        return 0
+
+    if not _recent_backup(ctx):
+        raise BlogError("no database backup from the last hour", hint="run: blog backup --label pre-cleanup")
+    done = 0
+    t0 = time.time()
+    for i in range(0, len(todo), a.batch):
+        chunk = todo[i:i + a.batch]
+        ctx.wp.run("user", "delete", *chunk, "--yes", mutating=True, timeout=1800)
+        done += len(chunk)
+        ctx.info(f"  deleted {done}/{len(todo)}  ({time.time() - t0:.0f}s)")
+    info.update(applied=True, deleted=done)
+    ctx.wp.run("cache", "flush", check=False)
+    remaining = int(ctx.wp.text("user", "list", "--role=subscriber", "--format=count"))
+    info["subscribers_remaining"] = remaining
+    ctx.emit(info, f"deleted {done} spam accounts; {remaining} subscriber account(s) remain")
