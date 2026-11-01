@@ -94,7 +94,7 @@ class AutoUpdateTests(unittest.TestCase):
         from blog import maint
         self.maint, self.mock, self.argparse, self.Path = maint, mock, argparse, Path
         self.tmp = tempfile.mkdtemp()
-        self.mails, self.pruned = [], []
+        self.mails, self.pruned, self.warnings = [], [], []
         site = argparse.Namespace(name="s", notify_email="me@example.org", keep_backups=3)
         self.ctx = argparse.Namespace(site=site, t=argparse.Namespace(kind="local"), json=False, emit=lambda d, h=None: None)
 
@@ -109,6 +109,7 @@ class AutoUpdateTests(unittest.TestCase):
         with mock.patch.object(maint, "run_update", fake_run_update), \
              mock.patch.object(maint, "prune_server_backups", lambda c, k: self.pruned.append(k) or []), \
              mock.patch.object(maint, "_mail", lambda c, to, s, b: self.mails.append((to, s, b)) or True), \
+             mock.patch("blog.security.host_warnings_for", lambda c: list(self.warnings)), \
              mock.patch("pathlib.Path.home", return_value=self.Path(self.tmp)):
             a = self.argparse.Namespace(notify=None, keep_backups=0, dry_run=dry)
             with contextlib.redirect_stdout(io.StringIO()):
@@ -214,3 +215,127 @@ class UpdateCheckTests(unittest.TestCase):
         for bad in ("/a/", "=text", "/a/="):
             with self.assertRaises(BlogError):
                 parse_checks("https://x.org", [bad])
+
+
+class PublishTests(unittest.TestCase):
+    class WP:
+        def __init__(self, post_gmt, status_after):
+            self.post_gmt, self.status_after, self.updates = post_gmt, status_after, []
+
+        def resolve_post(self, ref):
+            return 7
+
+        def text(self, *a, **k):
+            if a[:2] == ("post", "get"):
+                return self.post_gmt
+            return "2026-11-01 11:00:00 | 2026-11-01 09:00:00"
+
+        def run(self, *a, **k):
+            self.updates.append(a)
+
+        def post_info(self, pid):
+            return {"ID": pid, "post_status": self.status_after, "post_title": "t", "url": "u"}
+
+    class Ctx:
+        json = True
+
+        def __init__(self, wp):
+            self.wp = wp
+
+        def emit(self, *a, **k):
+            pass
+
+    def _run(self, post_gmt, status_after):
+        import types
+        from blog.editorial import _set_status
+        wp = self.WP(post_gmt, status_after)
+        ctx = self.Ctx(wp)
+        wp.terms = lambda *_: []
+        try:
+            _set_status(ctx, types.SimpleNamespace(post="7"), "publish", "published")
+        except Exception:
+            raise
+        return wp
+
+    def test_publishing_a_scheduled_post_resets_its_date(self):
+        # `publish` used to say "published" while the post stayed scheduled
+        from unittest import mock
+        with mock.patch("blog.editorial._summary"):
+            wp = self._run("2030-03-03 10:00:00", "publish")
+        args = wp.updates[0]
+        self.assertIn("--post_date_gmt=2026-11-01 09:00:00", args)
+        self.assertIn("--post_date=2026-11-01 11:00:00", args)
+
+    def test_publishing_a_draft_keeps_its_dates(self):
+        from unittest import mock
+        with mock.patch("blog.editorial._summary"):
+            wp = self._run("2026-10-01 09:00:00", "publish")
+        self.assertEqual(wp.updates[0], ("post", "update", 7, "--post_status=publish"))
+
+    def test_never_claims_success_when_status_did_not_change(self):
+        from unittest import mock
+        with mock.patch("blog.editorial._summary"), self.assertRaises(BlogError):
+            self._run("2026-10-01 09:00:00", "future")
+
+
+class HostWarningTests(unittest.TestCase):
+    def test_thresholds(self):
+        from blog.security import host_warnings
+        ok = {"http": {"status": 200}, "tls_days_left": 60, "disk": ["800G", "200G", "600G", "25%"], "last_backup_days": 2}
+        self.assertEqual(host_warnings(ok), [])
+        self.assertEqual(len(host_warnings({**ok, "tls_days_left": 10})), 1)
+        self.assertEqual(len(host_warnings({**ok, "disk": ["800G", "700G", "100G", "88%"]})), 1)
+        self.assertEqual(len(host_warnings({**ok, "last_backup_days": 45})), 1)
+        self.assertEqual(len(host_warnings({**ok, "last_backup_days": None})), 1)
+        self.assertEqual(len(host_warnings({**ok, "http": {"status": 503}})), 1)
+        self.assertEqual(host_warnings({}), [])
+
+    def test_auto_update_mails_only_for_new_warnings(self):
+        t = AutoUpdateTests("test_nothing_to_do_is_silent")
+        t.setUp()
+        quiet = {"plan": [], "results": [], "applied": False}
+        t.warnings = ["disk is 90% full (50G available)"]
+        t.run_auto(quiet)
+        self.assertEqual(len(t.mails), 1)
+        self.assertIn("warning", t.mails[0][1])
+        t.run_auto(quiet)                      # same warning next day: no repeat mail
+        self.assertEqual(len(t.mails), 1)
+        t.warnings = ["disk is 90% full (50G available)", "TLS certificate expires in 5 days (automatic renewal looks broken)"]
+        t.run_auto(quiet)                      # a different warning appears: mail again
+        self.assertEqual(len(t.mails), 2)
+
+
+class SecurityParsingTests(unittest.TestCase):
+    def test_generated_files_are_not_alarms_but_code_is(self):
+        from blog.security import parse_checksum_output
+        out = ("wpmathpub\tphpmathpublisher/img/math_1.png\tFile was added\n"
+               "evil\tshell.php\tFile was added\n"
+               "akismet\tclass.akismet.php\tChecksum does not match\n"
+               "Warning: Could not fetch checksums for plugin my-plugin\n")
+        modified, added_php, added_other, unverifiable = parse_checksum_output(out)
+        self.assertEqual(added_other, ["wpmathpub/phpmathpublisher/img/math_1.png"])
+        self.assertEqual(added_php, ["evil/shell.php"])
+        self.assertEqual(len(modified), 1)
+        self.assertEqual(unverifiable, ["Could not fetch checksums for plugin my-plugin"])
+
+
+class SnapshotTests(unittest.TestCase):
+    def test_metrics_and_diff(self):
+        from blog.security import diff_metrics, page_metrics
+        html = "<html><head><title>T &amp; U</title><script>x=1</script></head><body><img src=a><p>Hello</p></body></html>"
+        a = page_metrics(200, html)
+        self.assertEqual((a["title"], a["images"], a["scripts"], a["text_chars"]), ("T & U", 1, 1, 5 + 0))
+        b = page_metrics(200, html.replace("<img src=a>", "").replace("<script>x=1</script>", "<script>y=2</script><script></script>"))
+        changes = {(k, x, y) for _, k, x, y in diff_metrics({"u": a}, {"u": b})}
+        self.assertIn(("images", 1, 0), changes)
+        self.assertIn(("scripts", 1, 2), changes)
+        self.assertNotIn("text_sha", {k for k, _, _ in changes})     # visible text unchanged
+
+
+class ClosedPluginTests(unittest.TestCase):
+    def test_closed_notice(self):
+        from blog.security import closed_notice
+        d = {"error": "closed", "description": "This plugin has been closed as of March 27, 2025 and is not available for download. Reason: Security Issue."}
+        self.assertEqual(closed_notice(d), "closed as of March 27, 2025. Reason: Security Issue")
+        self.assertIsNone(closed_notice({"error": "Plugin not found."}))
+        self.assertIsNone(closed_notice(None))

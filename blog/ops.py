@@ -137,6 +137,8 @@ def collect_status(ctx, deep=False):
     st["disk"] = df[-1].split() if len(df) > 1 else None
     st["http"] = _http_check(st["url"])
     st["tls_days_left"] = _tls_days(st["url"])
+    from .security import backup_age_days
+    st["last_backup_days"] = backup_age_days(ctx)
     if deep:
         r = wp.run("core", "verify-checksums", check=False)
         st["core_checksums_ok"] = r.ok
@@ -152,12 +154,12 @@ def cmd_status(ctx, a):
         print(f"  WordPress   {st['wordpress']}   PHP {st['php']}   DB {st['db_size'] or '?'}   disk used/avail {st['disk'][1]}/{st['disk'][2]} ({st['disk'][3]})" if st["disk"] else "")
         h = st["http"]
         print(f"  HTTP        {h.get('status')} in {h.get('ms', '?')} ms" + (f"  ({h['error']})" if h.get("error") else ""))
-        if h.get("status") != 200:
-            warn.append("site did not return HTTP 200")
         if st["tls_days_left"] is not None:
             print(f"  TLS         {st['tls_days_left']} days left")
-            if st["tls_days_left"] < 14:
-                warn.append("TLS certificate expires soon")
+        b = st["last_backup_days"]
+        print(f"  Backup      " + ("none on the server" if b is None else f"newest is {b} day(s) old"))
+        from .security import host_warnings
+        warn.extend(host_warnings(st))
         print(f"  Posts       " + ", ".join(f"{k} {v}" for k, v in st["posts"].items() if v or k in ("publish", "draft")))
         print(f"  Users       {st['users']['total']} ({st['users']['subscribers']} subscribers)")
         if st["users"]["subscribers"] > 100:

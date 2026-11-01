@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, editorial, maint, ops
+from . import __version__, editorial, maint, ops, security
 from .ctx import Ctx
 from .errors import BlogError
 
@@ -151,6 +151,15 @@ def build_parser():
                    help="extra smoke test, repeatable: the page (path like /2008/08/x/ or full URL) must contain TEXT, before and after each update")
     p.add_argument("--pause", action="store_true", help="interactive: stop after each update so you can inspect the site")
 
+    p = add("security", security.cmd_security, "read-only security review: checksums, admins, permissions, code in uploads, plugin upkeep, TLS/disk/backups")
+    p.add_argument("--offline", action="store_true", help="skip the wordpress.org lookup of plugin upkeep (only plugin slugs are ever sent)")
+
+    p = add("snapshot", security.cmd_snapshot, "save/compare how key pages render (before/after an update): `snapshot take NAME`, `snapshot diff A B`, `snapshot ls`")
+    p.add_argument("action", choices=["take", "diff", "ls"])
+    p.add_argument("names", nargs="*")
+    p.add_argument("--url", action="append", metavar="PATH", help="extra page to include, e.g. /2008/08/02/prime-numbers-generator/ (repeatable)")
+    p.add_argument("-n", type=int, default=5, help="how many latest posts to include (default 5)")
+
     p = add("cache", None, "page cache: `blog cache purge` removes this site's nginx FastCGI cache entries only")
     p.add_argument("action", choices=["purge"])
     p.set_defaults(fn=lambda ctx, a: maint.cmd_cache_purge(ctx, a))
@@ -213,6 +222,8 @@ MAINTENANCE / SWISS ARMY
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
   blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
+  blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
+  blog snapshot take NAME [--url PATH]... [-n 5] | diff A B | ls   gentle (1 req/s) before/after page comparison
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
   blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive] [--check URL=TEXT]... [--pause]

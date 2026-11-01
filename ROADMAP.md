@@ -27,16 +27,19 @@
 - [x] `auto-update` (non-major only, mails only when needed) and `deploy` (to run it from cron on the server) — decision logic unit-tested; apply path not yet exercised live
 - [x] `cache purge` (this site's entries only in a shared nginx FastCGI cache)
 - [ ] Install/uninstall helper for the cron job (`blog auto-update --install-cron`, with a dry run and an explicit confirmation)
-- [ ] `security`: core + plugin checksums, admin users, file perms, debug flags, vulnerability-feed lookup (WPScan/Patchstack)
+- [x] `security`: core + plugin checksums, admin users, file perms, code in uploads, debug flag, pending updates, plugins closed/abandoned on wordpress.org, TLS/disk/backup age (read-only; exit 1 on FAIL)
+- [ ] `security`: real vulnerability-feed lookup (Wordfence/Patchstack/WPScan all need an API key — decide on one)
 - [x] `prune-spam-users` (never-active subscribers only; dry run by default; needs a recent backup; batched) — trial-tested on 100 accounts
 - [ ] Plugin/theme cleanup helpers (list unused, delete with confirmation)
 - [ ] `db`: size, optimize, `search-replace --dry-run`, autoload report; `log tail`; `cron` health
-- [ ] TLS/certbot/disk warnings in `status` and in the `auto-update` mail
+- [x] TLS/disk/stale-backup warnings in `status` and in the `auto-update` mail (mailed only when a warning is new)
+- [ ] certbot-specific check (why renewal failed), not just "days left"
 - [ ] Backup: scheduled runs and an off-server copy
 
 ## Agent polish
 - [x] `--json` everywhere, `agent-help`, AGENTS.md
-- [ ] `blog snapshot before|after`: rate-limited multi-page structural diff (menu, widgets, headings, assets, error text)
+- [x] `blog snapshot take|diff|ls`: gentle (1 req/s) multi-page comparison of status, title, text hash, images, scripts, math images, error text
+- [ ] snapshot: menus/widgets/headings detail; `update --yes` taking a snapshot automatically
 - [~] Plugin-aware smoke tests: `update --check URL=expected-text` done (verified read-only against the math page); *remembering* checks per plugin in config still open
 - [x] `update --pause` (interactive, tty only; agents update one item by name instead)
 - [ ] Consistent JSON error schema and exit codes; mocked-transport tests for editorial/ops; integration tests against a throwaway WordPress

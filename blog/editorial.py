@@ -315,7 +315,19 @@ def cmd_show(ctx, a):
 
 def _set_status(ctx, a, status, note):
     pid = ctx.wp.resolve_post(a.post)
-    ctx.wp.run("post", "update", pid, f"--post_status={status}", mutating=True)
+    args = [f"--post_status={status}"]
+    if status == "publish":
+        # a post whose date is still in the future stays 'future' (scheduled) no matter what status is asked for:
+        # "publish now" must also move the date to now.
+        gmt_date = ctx.wp.text("post", "get", pid, "--field=post_date_gmt").strip()
+        now = ctx.wp.text("eval", "echo current_time('mysql'), '|', current_time('mysql', 1);").strip()
+        local_now, _, gmt_now = (x.strip() for x in now.partition("|"))
+        if gmt_date > gmt_now:
+            args += [f"--post_date={local_now}", f"--post_date_gmt={gmt_now}"]
+    ctx.wp.run("post", "update", pid, *args, mutating=True)
+    got = ctx.wp.post_info(pid)["post_status"]
+    if got != status:
+        raise BlogError(f"post {pid} is '{got}', not '{status}' after the update", hint="check `blog show %s` and the post's date" % pid)
     _summary(ctx, pid, note=note, check=(status == "publish"))
 
 

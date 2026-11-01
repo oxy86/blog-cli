@@ -31,6 +31,8 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
   string (`?blogcheck=123`). The updater's health check does this, requires HTTP 200 + a complete page, and fails on error text
   ("critical error", "not usable", …). It can't know plugin-specific features: after updating a plugin that *renders* something (math,
   galleries, sitemaps, highlighting) look at a page that uses it, uncached.
+- **Before/after an update:** `blog snapshot take before --url /a/page/using/the/plugin/`, update, `snapshot take after`, `snapshot diff before after`
+  (lines marked `!` are content changes). `blog security` also flags plugins that wordpress.org has *closed* (it only sends plugin slugs).
 - **Shared caches:** if several sites share one nginx FastCGI cache, never wipe it — `blog cache purge` deletes only this site's entries.
 - **Restores from tar as a non-root user don't restore group ownership** — re-apply the web group (the tool does).
 - **Firewall plugins block clients that make "multiple erroneous requests"** (repeated 404s, failed logins). Test admin-ish endpoints from
@@ -78,6 +80,8 @@ MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
+  blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
+  blog snapshot take NAME [--url PATH]... [-n 5] | diff A B | ls   gentle (1 req/s) before/after page comparison
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
   blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive] [--check URL=TEXT]... [--pause]

@@ -580,6 +580,12 @@ def cmd_auto_update(ctx, a):
         pruned = prune_server_backups(ctx, keep)
     held = _held_key(plan)
     new_held = [h for h in held if h not in prev.get("held", [])]
+    from . import security
+    try:
+        warnings = security.host_warnings_for(ctx)
+    except BlogError:
+        warnings = []
+    new_warnings = [w for w in warnings if w not in prev.get("warnings", [])]
 
     lines = []
     def L(x=""):
@@ -595,6 +601,8 @@ def cmd_auto_update(ctx, a):
         L("waiting for your decision (held back on purpose): " + ", ".join(f"{p['name']} {p['from']}->{p['to']}" for p in plan if p["action"] == "hold"))
     if pruned:
         L(f"old backups removed: {', '.join(pruned)}")
+    for w in warnings:
+        L(("NEW WARNING: " if w in new_warnings else "warning (unchanged): ") + w)
     if not lines:
         L("nothing to do")
 
@@ -606,6 +614,8 @@ def cmd_auto_update(ctx, a):
         reasons.append(f"{len(applied)} updated")
     if new_held:
         reasons.append("needs a decision")
+    if new_warnings:
+        reasons.append("warning")
     subject = f"[blog] {ctx.site.name}: " + (", ".join(reasons) if reasons else "no change")
     body = "\n".join(lines) + f"\n\n-- blog auto-update on {ctx.t.kind} at {time.strftime('%Y-%m-%d %H:%M:%S %z')}\n"
     mailed = False
@@ -613,7 +623,7 @@ def cmd_auto_update(ctx, a):
         mailed = _mail(ctx, to, subject, body)
     report = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "site": ctx.site.name, "ok": not (error or failed), "error": error,
               "applied": [f"{r['kind']}:{r['name']}:{r['to']}" for r in applied], "failed": [f"{r['kind']}:{r['name']}" for r in failed],
-              "held": held, "pruned": pruned, "mailed": mailed, "subject": subject}
+              "held": held, "warnings": warnings, "pruned": pruned, "mailed": mailed, "subject": subject}
     if not a.dry_run:
         (state / f"{time.strftime('%Y%m%d-%H%M%S')}.json").write_text(json.dumps(report, indent=1))
         last_file.write_text(json.dumps(report, indent=1))
