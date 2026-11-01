@@ -33,6 +33,19 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
   galleries, sitemaps, highlighting) look at a page that uses it, uncached.
 - **Before/after an update:** `blog snapshot take before --url /a/page/using/the/plugin/`, update, `snapshot take after`, `snapshot diff before after`
   (lines marked `!` are content changes). `blog security` also flags plugins that wordpress.org has *closed* (it only sends plugin slugs).
+- **Highlighter migration (wp-syntax -> Enlighter):** `blog migrate-code` (dry run first; `--yes` needs a backup < 1 h old; `--restore DIR --yes` undoes).
+  It escapes `& < >` because wp-syntax stored code as raw text, writes straight to the database (a normal `wp post update` fires publish hooks
+  = outbound pingbacks to every link in the post, and bumps modified dates), and keeps today's display of stored entities unless `--decode-entities`.
+  Enlighter builds its JS/CSS into `plugins/enlighter/cache/` on the first page view; with a hardened layout the web user cannot write there, so
+  run `blog highlight-cache` (the updater does it after an Enlighter update). Verify highlighting with a page fetch: it must reference
+  `enlighter/cache/enlighterjs.min.js` and that URL must return 200.
+- **Old plugins break on new PHP:** wp-syntax/GeSHi emitted a PHP warning per code block on PHP 8.4 (a page with many blocks overflowed nginx's header
+  buffer -> 502) and hit a fatal in GeSHi (-> 500). After PHP upgrades, fetch pages that use legacy plugins *uncached* (a purge removes the good cached copy).
+  Look in the vhost error log (`/var/log/nginx/<site>.error.log`, readable by group `adm`) for `PHP Warning`/`PHP Fatal error` bursts.
+- **Newlines:** old posts use `\r\n`; the SSH transport hands them back as `\n`. Compare content modulo newline style (`migrate.same_text`).
+- **Don't chain a verification with the next step** (`a && b && c` with `| tail` hides exit codes): check the result, then continue.
+- **Replacing a firewall/security plugin directory:** stage inside the same filesystem, then two quick `mv` renames (a missing plugin file silently
+  disables a mu-plugin loader). Keep the old copy outside the web root (mode 700), never in `wp-content`.
 - **Shared caches:** if several sites share one nginx FastCGI cache, never wipe it — `blog cache purge` deletes only this site's entries.
 - **Restores from tar as a non-root user don't restore group ownership** — re-apply the web group (the tool does).
 - **Firewall plugins block clients that make "multiple erroneous requests"** (repeated 404s, failed logins). Test admin-ish endpoints from

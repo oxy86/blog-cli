@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, editorial, maint, ops, security
+from . import __version__, editorial, maint, migrate, ops, security
 from .ctx import Ctx
 from .errors import BlogError
 
@@ -151,6 +151,16 @@ def build_parser():
                    help="extra smoke test, repeatable: the page (path like /2008/08/x/ or full URL) must contain TEXT, before and after each update")
     p.add_argument("--pause", action="store_true", help="interactive: stop after each update so you can inspect the site")
 
+    p = add("migrate-code", migrate.cmd_migrate_code,
+            "rewrite wp-syntax <pre lang=..> blocks as Enlighter blocks (dry run by default; --yes needs a fresh backup; --restore undoes)")
+    p.add_argument("--yes", action="store_true", help="apply (default: dry run)")
+    p.add_argument("--ids", help="only these post IDs (comma-separated)")
+    p.add_argument("--decode-entities", action="store_true",
+                   help="show stored entities (&amp; &lt;) as the characters they stand for; default keeps today's display")
+    p.add_argument("--restore", metavar="DIR", help="put back the originals saved by an earlier run")
+
+    add("highlight-cache", migrate.cmd_highlight_cache, "(re)build Enlighter's JS/CSS as the deploy user, read-only for the web group; needed after every Enlighter update")
+
     p = add("security", security.cmd_security, "read-only security review: checksums, admins, permissions, code in uploads, plugin upkeep, TLS/disk/backups")
     p.add_argument("--offline", action="store_true", help="skip the wordpress.org lookup of plugin upkeep (only plugin slugs are ever sent)")
 
@@ -222,6 +232,8 @@ MAINTENANCE / SWISS ARMY
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
   blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
+  blog migrate-code [--ids ..] [--decode-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings)
+  blog highlight-cache        rebuild Enlighter's JS/CSS (read-only for web); `update` does this automatically after an Enlighter update
   blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
   blog snapshot take NAME [--url PATH]... [-n 5] | diff A B | ls   gentle (1 req/s) before/after page comparison
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)

@@ -339,3 +339,80 @@ class ClosedPluginTests(unittest.TestCase):
         self.assertEqual(closed_notice(d), "closed as of March 27, 2025. Reason: Security Issue")
         self.assertIsNone(closed_notice({"error": "Plugin not found."}))
         self.assertIsNone(closed_notice(None))
+
+
+class MigrateCodeTests(unittest.TestCase):
+    def conv(self, text, **kw):
+        from blog.migrate import convert
+        return convert(text, **kw)
+
+    def test_rewrites_lang_and_line(self):
+        new, st = self.conv('<pre lang="cpp" line="1">int main() {}</pre>')
+        self.assertEqual(new, '<pre class="EnlighterJSRAW" data-enlighter-language="cpp" data-enlighter-linenumbers="true">int main() {}</pre>')
+        self.assertEqual(st["blocks"], 1)
+
+    def test_bash_becomes_shell_and_unknown_becomes_generic(self):
+        self.assertIn('data-enlighter-language="shell"', self.conv('<pre lang="bash">ls</pre>')[0])
+        new, st = self.conv('<pre lang="pascal">begin end.</pre>')
+        self.assertIn('data-enlighter-language="generic"', new)
+        self.assertEqual(st["generic"], 1)
+
+    def test_line_offset_and_no_numbers(self):
+        self.assertIn('data-enlighter-lineoffset="10"', self.conv('<pre lang="php" line="10">x</pre>')[0])
+        self.assertIn('data-enlighter-linenumbers="false"', self.conv('<pre lang="php">x</pre>')[0])
+
+    def test_raw_angle_brackets_are_escaped(self):
+        # wp-syntax shows stored text literally; "#include <iostream>" would vanish as a tag if left unescaped
+        new, _ = self.conv('<pre lang="cpp">#include <iostream>\nif (a<b && c>d) {}</pre>')
+        self.assertIn("#include &lt;iostream&gt;", new)
+        self.assertIn("a&lt;b &amp;&amp; c&gt;d", new)
+        self.assertNotIn("<iostream>", new)
+
+    def test_inline_html_in_code_is_shown_literally(self):
+        new, _ = self.conv('<pre lang="pascal">x := <b>1</b>;</pre>')
+        self.assertIn("&lt;b&gt;1&lt;/b&gt;", new)
+
+    def test_existing_entities_keep_todays_display_unless_asked(self):
+        kept, st = self.conv('<pre lang="bash">a &amp;&amp; b</pre>')
+        self.assertIn("a &amp;amp;&amp;amp; b", kept)          # displays "&amp;&amp;" exactly as the live site does today
+        self.assertEqual(st["entities"], 1)
+        fixed, _ = self.conv('<pre lang="bash">a &amp;&amp; b</pre>', decode_entities=True)
+        self.assertIn("a &amp;&amp; b", fixed)                  # displays "&&"
+
+    def test_escaped_true_is_not_double_escaped(self):
+        self.assertIn(">a &lt; b<", self.conv('<pre lang="php" escaped="true">a &lt; b</pre>')[0])
+
+    def test_leading_blank_line_and_trailing_space_trimmed(self):
+        self.assertIn(">x\n  y</pre>", self.conv('<pre lang="php">\nx\n  y\n\n  </pre>')[0])
+
+    def test_untouched_cases(self):
+        for same in ("<pre>plain</pre>", '<pre class="x">y</pre>', '<pre lang="">z</pre>', "no code here",
+                     '<pre class="EnlighterJSRAW" data-enlighter-language="cpp">done</pre>'):
+            self.assertEqual(self.conv(same)[0], same)
+
+    def test_idempotent(self):
+        once = self.conv('<pre lang="cpp" line="1">a<b</pre>')[0]
+        self.assertEqual(self.conv(once)[0], once)
+
+    def test_round_trip_text_is_identical(self):
+        import html
+        raw = 'if (a<b) { x = "&"; }\n\ty->z;'
+        new, _ = self.conv(f'<pre lang="cpp">{raw}</pre>')
+        inner = new[new.index(">") + 1:-len("</pre>")]
+        self.assertEqual(html.unescape(inner), raw)
+
+
+class ReadBackTests(unittest.TestCase):
+    def test_newline_style_is_ignored_but_content_is_not(self):
+        from blog.migrate import same_text
+        self.assertTrue(same_text("a\nb\n", "a\r\nb"))
+        self.assertFalse(same_text("a\nb", "a\nc"))
+
+
+class GeneratedAssetTests(unittest.TestCase):
+    def test_cache_dir_js_is_not_an_added_code_alarm(self):
+        from blog.security import parse_checksum_output
+        out = "enlighter\tcache/enlighterjs.min.js\tFile was added\nevil\tinc/shell.js\tFile was added\n"
+        modified, added_php, added_other, _ = parse_checksum_output(out)
+        self.assertEqual(added_other, ["enlighter/cache/enlighterjs.min.js"])
+        self.assertEqual(added_php, ["evil/inc/shell.js"])

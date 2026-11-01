@@ -85,7 +85,9 @@ def parse_checksum_output(text):
         elif len(parts) >= 3 and parts[0] != "plugin_name":
             name, path, why = parts[0], parts[1], parts[2]
             if "added" in why.lower():
-                (added_php if re.search(r"\.(php|phtml|phar|js)$", path, re.I) else added_other).append(f"{name}/{path}")
+                generated = re.search(r"(^|/)cache/", path)    # e.g. enlighter/cache/enlighterjs.min.js, built on purpose by `blog highlight-cache`
+                code = re.search(r"\.(php|phtml|phar|js)$", path, re.I) and not generated
+                (added_php if code else added_other).append(f"{name}/{path}")
             else:
                 modified.append(f"{name}/{path}: {why}")
     return modified, added_php, added_other, unverifiable
@@ -178,7 +180,8 @@ def cmd_security(ctx, a):
     add("warn" if pend else "ok", "pending updates", f"{pend} update(s) waiting (blog update)" if pend else "everything is current")
 
     if not a.offline:
-        for level, name, detail in _plugin_reputation(wp.json("plugin", "list", "--fields=name,status,version")):
+        for level, name, detail in _plugin_reputation(wp.json("plugin", "list", "--fields=name,status,version"),
+                                                      accepted=getattr(ctx.site, "accept_closed", ())):
             add(level, name, detail)
 
     from .ops import _tls_days
@@ -210,7 +213,7 @@ def closed_notice(info):
     return None
 
 
-def _plugin_reputation(plugins):
+def _plugin_reputation(plugins, accepted=()):
     """Ask wordpress.org (the same public API wp-cli uses for updates; only plugin slugs are sent) whether a plugin
     was closed or has gone unmaintained. There is no key-less vulnerability feed, so this is a proxy, not a CVE scan."""
     import urllib.request
@@ -237,6 +240,10 @@ def _plugin_reputation(plugins):
         closed = closed_notice(info)
         if closed:
             serious = "security" in closed.lower() and p["status"] == "active"
+            if slug in accepted:     # owner decision recorded in the config: the vendor ships its own updates
+                out.append(("info", f"plugin {slug}", f"closed on wordpress.org ({closed}) — accepted in config; "
+                                                      f"updates come from the vendor (installed {p['version']})"))
+                continue
             out.append(("fail" if serious else "warn", f"plugin {slug}",
                         f"CLOSED on wordpress.org: {closed} — it receives no updates from there ({p['status']}, installed {p['version']})"))
             continue

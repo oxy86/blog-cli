@@ -15,7 +15,7 @@
 - [x] `unpublish`, `trash`, `new --schedule`, `edit --schedule`, `edit` via `$EDITOR`, `edit -f`, `media --attach --featured` — exercised on throwaway drafts and cleaned up (found and fixed a bug: `edit --schedule` published the post instead of scheduling it)
 - [~] `media` from a URL, and `publish` on a scheduled post, not exercised
 - [x] Front matter: `featured_image`, `excerpt`, `date`; `blog new --image URL|PATH`
-- [ ] Nested lists and tables; wp-syntax-style code blocks (`<pre lang=…>`) option
+- [ ] Nested lists and tables; Enlighter-style code blocks from fenced Markdown (`new` currently emits plain `wp:code`)
 - [x] `blog quote` shortcut ("paste a quote + source link" workflow)
 - [ ] Pages in `new`/`edit`; `blog comments ls|approve|spam|delete`
 - [~] Post-publish live check in `publish` / `new --publish` (check function verified on a live page; the publish wiring itself has only run for real on the next post)

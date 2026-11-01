@@ -467,6 +467,9 @@ def run_update(ctx, a):
                 if keep_dirs:
                     ctx.info(f"  restoring web-generated data: {', '.join(keep_dirs)}")
                     _restore_data_dirs(ctx, backup, keep_dirs)
+            if it["kind"] == "plugin" and it["name"] == "enlighter":    # the update wiped its generated JS/CSS
+                from .migrate import build_highlighter_assets
+                ctx.info(f"  rebuilt highlighter assets: {', '.join(build_highlighter_assets(ctx))}")
             ctx.wp.run("cache", "flush", check=False)
             purged = purge_page_cache(ctx)
             ctx.info(f"  purged {purged} cached page(s)")
