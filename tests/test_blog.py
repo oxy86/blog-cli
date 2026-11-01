@@ -416,3 +416,73 @@ class GeneratedAssetTests(unittest.TestCase):
         modified, added_php, added_other, _ = parse_checksum_output(out)
         self.assertEqual(added_other, ["enlighter/cache/enlighterjs.min.js"])
         self.assertEqual(added_php, ["evil/inc/shell.js"])
+
+
+class NotifyTests(unittest.TestCase):
+    def item(self, key, section="Updates waiting", text="x"):
+        return {"key": key, "section": section, "text": text}
+
+    def test_first_run_reports_everything_as_new(self):
+        from blog.notify import decide
+        send, new, standing, reason = decide([self.item("a"), self.item("b")], {}, 1000.0)
+        self.assertEqual((send, len(new), len(standing), reason), (True, 2, 0, "new"))
+
+    def test_standing_items_are_not_mailed_again(self):
+        from blog.notify import decide
+        state = {"keys": ["a", "b"], "last_sent": 990.0}
+        send, new, standing, reason = decide([self.item("a"), self.item("b")], state, 1000.0)
+        self.assertEqual((send, reason, len(standing)), (False, "quiet", 2))
+
+    def test_only_the_new_item_triggers_mail(self):
+        from blog.notify import decide
+        send, new, standing, _ = decide([self.item("a"), self.item("c")], {"keys": ["a"], "last_sent": 990.0}, 1000.0)
+        self.assertTrue(send)
+        self.assertEqual([i["key"] for i in new], ["c"])
+        self.assertEqual([i["key"] for i in standing], ["a"])
+
+    def test_resolved_items_alone_do_not_trigger_mail(self):
+        from blog.notify import decide
+        self.assertFalse(decide([], {"keys": ["a"], "last_sent": 990.0}, 1000.0)[0])
+
+    def test_heartbeat_only_after_the_interval(self):
+        from blog.notify import decide
+        day = 86400.0
+        self.assertFalse(decide([], {"keys": [], "last_sent": 0.0}, 29 * day)[0])
+        send, _, _, reason = decide([], {"keys": [], "last_sent": 0.0}, 31 * day)
+        self.assertEqual((send, reason), (True, "heartbeat"))
+        self.assertFalse(decide([], {"keys": [], "last_sent": 0.0}, 99 * day, heartbeat_days=0)[0])
+
+    def test_changing_numbers_in_a_warning_do_not_make_it_new(self):
+        from blog.notify import _norm
+        self.assertEqual(_norm("TLS certificate expires in 12 days"), _norm("TLS certificate expires in 11 days"))
+
+    def test_render_groups_and_says_nothing_was_changed(self):
+        from blog.notify import render
+        subject, body = render("s", [self.item("a", "Security review", "FAIL plugin x: closed")], [self.item("b", "Updates waiting", "plugin y 1 -> 2")], "new")
+        self.assertIn("1 new item", subject)
+        self.assertIn("NEW since the last notice", body)
+        self.assertIn("Still open", body)
+        self.assertIn("Nothing was changed", body)
+        _, quiet = render("s", [], [], "heartbeat")
+        self.assertIn("heartbeat", quiet)
+
+
+class FixEntitiesTests(unittest.TestCase):
+    def test_double_escaped_entities_are_fixed_only_inside_enlighter_blocks(self):
+        from blog.migrate import fix_entities
+        src = ('<p>a &amp;amp; b</p><pre class="EnlighterJSRAW" data-enlighter-language="shell">a &amp;amp;&amp;amp; b\n'
+               'if (x&amp;lt;22) {} a &lt; b &amp;gt; c</pre>')
+        new, st = fix_entities(src)
+        self.assertIn("<p>a &amp;amp; b</p>", new)                       # prose untouched
+        self.assertIn("a &amp;&amp; b", new)
+        self.assertIn("x&lt;22", new)
+        self.assertIn("a &lt; b &gt; c", new)                           # single-escaped text is already right
+        self.assertEqual(st["blocks"], 1)
+        self.assertEqual(st["preview"][0][1:], ("a &amp;&amp; b", "a && b"))
+
+    def test_clean_blocks_are_left_alone_and_idempotent(self):
+        from blog.migrate import fix_entities
+        src = '<pre class="EnlighterJSRAW" data-enlighter-language="cpp">a &lt; b &amp;&amp; c</pre>'
+        self.assertEqual(fix_entities(src)[0], src)
+        once = fix_entities('<pre class="EnlighterJSRAW">x &amp;amp; y</pre>')[0]
+        self.assertEqual(fix_entities(once)[0], once)

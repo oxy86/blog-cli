@@ -98,7 +98,8 @@ def _top(path):
     return "/".join(parts[:3]) if parts[0] == "wp-content" else "/".join(parts[:1])
 
 
-def cmd_security(ctx, a):
+def security_rows(ctx, offline=False):
+    """All findings as [{level, check, detail}] (level: ok | info | warn | fail). Read-only."""
     rows = []
     add = lambda level, name, detail: rows.append(_row(level, name, detail))   # noqa: E731
     wp, root = ctx.wp, ctx.site.path
@@ -179,7 +180,7 @@ def cmd_security(ctx, a):
             len(wp.json("theme", "list", "--update=available", "--fields=name")))
     add("warn" if pend else "ok", "pending updates", f"{pend} update(s) waiting (blog update)" if pend else "everything is current")
 
-    if not a.offline:
+    if not offline:
         for level, name, detail in _plugin_reputation(wp.json("plugin", "list", "--fields=name,status,version"),
                                                       accepted=getattr(ctx.site, "accept_closed", ())):
             add(level, name, detail)
@@ -192,6 +193,11 @@ def cmd_security(ctx, a):
     hw = host_warnings(host)
     add("warn" if hw else "ok", "host", "; ".join(hw) if hw else
         f"TLS {host['tls_days_left']} days left, disk {host['disk'][3] if host['disk'] else '?'}, newest backup {host['last_backup_days']} day(s) old")
+    return rows
+
+
+def cmd_security(ctx, a):
+    rows = security_rows(ctx, a.offline)
 
     def human():
         mark = {"ok": "ok  ", "info": "info", "warn": "WARN", "fail": "FAIL"}

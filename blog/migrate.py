@@ -95,14 +95,40 @@ def same_text(a, b):
     return norm(a) == norm(b)
 
 
-def _posts(ctx, only=None):
+DOUBLE_ESCAPED = re.compile(r"&amp;(amp|lt|gt|quot|#0?39);")
+ENLIGHTER_BLOCK = re.compile(r'(<pre class="EnlighterJSRAW"[^>]*>)(.*?)(</pre>)', re.S)
+
+
+def fix_entities(content):
+    """Inside existing Enlighter blocks turn '&amp;amp;' -> '&amp;', '&amp;lt;' -> '&lt;' ... so the page shows '&' and '<'
+    instead of the literal '&amp;' / '&lt;' that wp-syntax used to show for entities the visual editor had stored.
+    Returns (new content, stats) where stats['preview'] lists what readers will see: (block no., before line, after line)."""
+    stats = {"blocks": 0, "langs": {}, "generic": 0, "entities": 0, "preview": []}
+    counter = [0]
+
+    def fix(m):
+        counter[0] += 1
+        before = m.group(2)
+        after = DOUBLE_ESCAPED.sub(r"&\1;", before)
+        if after == before:
+            return m.group(0)
+        stats["blocks"] += 1
+        b_lines, a_lines = html.unescape(before).split("\n"), html.unescape(after).split("\n")
+        for x, y in zip(b_lines, a_lines):
+            if x != y and len(stats["preview"]) < 40:
+                stats["preview"].append((counter[0], x.strip()[:90], y.strip()[:90]))
+        return m.group(1) + after + m.group(3)
+    return ENLIGHTER_BLOCK.sub(fix, content), stats
+
+
+def _posts(ctx, only=None, marker=r"<pre[^>]*\blang\s*="):
     rows = ctx.wp.json("post", "list", "--post_type=post,page", "--post_status=publish,draft,private,pending,future",
                        "--posts_per_page=-1", "--fields=ID,post_title,post_status,post_content")
     out = []
     for r in rows:
         if only and str(r["ID"]) not in only:
             continue
-        if re.search(r"<pre[^>]*\blang\s*=", r["post_content"], re.I):
+        if re.search(marker, r["post_content"], re.I):
             out.append(r)
     return out
 
@@ -128,18 +154,27 @@ def cmd_migrate_code(ctx, a):
         return 0
 
     only = {x.strip() for x in (a.ids or "").split(",") if x.strip()} or None
-    posts = _posts(ctx, only)
-    plan, payload, originals, rows = [], {}, {}, []
+    fixing = a.fix_entities
+    posts = _posts(ctx, only, marker="EnlighterJSRAW" if fixing else r"<pre[^>]*\blang\s*=")
+    plan, payload, originals, rows, previews = [], {}, {}, [], {}
     for p in posts:
-        new, st = convert(p["post_content"], a.decode_entities)
+        new, st = fix_entities(p["post_content"]) if fixing else convert(p["post_content"], a.decode_entities)
         if new == p["post_content"]:
             continue
+        previews[p["ID"]] = st.get("preview", [])
         payload[str(p["ID"])], originals[str(p["ID"])] = new, p["post_content"]
         rows.append({"id": p["ID"], "status": p["post_status"], "title": p["post_title"][:42], "blocks": st["blocks"],
                      "langs": ",".join(f"{k}:{v}" for k, v in sorted(st["langs"].items())), "entities": st["entities"], "generic": st["generic"]})
     total = sum(r["blocks"] for r in rows)
 
     def dry():
+        if fixing:
+            print(table([{k: r[k] for k in ("id", "status", "title", "blocks")} for r in rows], ["id", "status", "title", "blocks"]) if rows else "(nothing to fix)")
+            for pid, pv in previews.items():
+                for n, before, after in pv:
+                    print(f"  post {pid} block {n}:\n      readers see now : {before}\n      readers will see: {after}")
+            print(f"\n{len(rows)} post(s), {total} block(s) would change.\n\ndry run — nothing changed. Apply with: blog migrate-code --fix-entities --yes   (needs a backup from the last hour)")
+            return
         print(table(rows, ["id", "status", "title", "blocks", "langs", "entities"]) if rows else "(nothing to migrate)")
         print(f"\n{len(rows)} post(s), {total} block(s) to rewrite.")
         ent = sum(r["entities"] for r in rows)
@@ -174,7 +209,8 @@ def cmd_migrate_code(ctx, a):
     def done():
         print(f"{msg}: {len(rows)} post(s), {total} block(s). Read-back check: {'all match' if not bad else 'MISMATCH in ' + ', '.join(bad)}.")
         print(f"purged {purged} cached page(s). Undo: blog migrate-code --restore {folder} --yes")
-        print("Next: activate Enlighter and deactivate wp-syntax (blog wp -- plugin activate enlighter / deactivate wp-syntax).")
+        if not fixing:
+            print("Next: activate Enlighter and deactivate wp-syntax (blog wp -- plugin activate enlighter / deactivate wp-syntax).")
     ctx.emit(res, done)
     return 1 if bad else 0
 

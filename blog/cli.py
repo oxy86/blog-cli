@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, editorial, maint, migrate, ops, security
+from . import __version__, editorial, maint, migrate, notify, ops, security
 from .ctx import Ctx
 from .errors import BlogError
 
@@ -157,9 +157,17 @@ def build_parser():
     p.add_argument("--ids", help="only these post IDs (comma-separated)")
     p.add_argument("--decode-entities", action="store_true",
                    help="show stored entities (&amp; &lt;) as the characters they stand for; default keeps today's display")
+    p.add_argument("--fix-entities", action="store_true",
+                   help="after migration: inside existing Enlighter blocks show '&' and '<' where the editor had stored &amp; / &lt; (preview first)")
     p.add_argument("--restore", metavar="DIR", help="put back the originals saved by an earlier run")
 
     add("highlight-cache", migrate.cmd_highlight_cache, "(re)build Enlighter's JS/CSS as the deploy user, read-only for the web group; needed after every Enlighter update")
+
+    p = add("notify", notify.cmd_notify, "read-only watch: e-mails only when something NEW needs attention (updates waiting, security, TLS/disk/backups); changes nothing")
+    p.add_argument("--to", metavar="EMAIL", help="recipient (default: notify_email from the config)")
+    p.add_argument("--dry-run", action="store_true", help="show what would be mailed; send nothing, save no state")
+    p.add_argument("--offline", action="store_true", help="skip the wordpress.org plugin-upkeep lookup")
+    p.add_argument("--heartbeat-days", type=int, default=30, help="send an 'all quiet' mail if nothing was mailed for this many days (0 = never)")
 
     p = add("security", security.cmd_security, "read-only security review: checksums, admins, permissions, code in uploads, plugin upkeep, TLS/disk/backups")
     p.add_argument("--offline", action="store_true", help="skip the wordpress.org lookup of plugin upkeep (only plugin slugs are ever sent)")
@@ -232,8 +240,9 @@ MAINTENANCE / SWISS ARMY
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
   blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
-  blog migrate-code [--ids ..] [--decode-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings)
+  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings)
   blog highlight-cache        rebuild Enlighter's JS/CSS (read-only for web); `update` does this automatically after an Enlighter update
+  blog notify [--to EMAIL] [--dry-run] [--heartbeat-days 30]   read-only watch; mails only NEW items (cron-safe: never changes the site)
   blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
   blog snapshot take NAME [--url PATH]... [-n 5] | diff A B | ls   gentle (1 req/s) before/after page comparison
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)

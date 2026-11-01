@@ -93,6 +93,9 @@ MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
+  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks; --fix-entities shows & < > where the editor had stored entities (preview first)
+  blog highlight-cache        rebuild Enlighter's JS/CSS (read-only for web); `update` does this automatically after an Enlighter update
+  blog notify [--to EMAIL] [--dry-run] [--heartbeat-days 30]   read-only watch; mails only NEW items (cron-safe: never changes the site)
   blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
   blog snapshot take NAME [--url PATH]... [-n 5] | diff A B | ls   gentle (1 req/s) before/after page comparison
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
