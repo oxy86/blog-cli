@@ -1,9 +1,13 @@
 """Editorial commands: new, edit, ls, show, publish, unpublish, trash, media, tags, cats."""
+import argparse
 import datetime as dt
+import html
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 
 from . import md
 from .ctx import table
@@ -97,10 +101,43 @@ def _parse_date(s):
     return d.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _summary(ctx, pid, note=None):
+def _schedule_fields(ctx, when):
+    """post_date + post_date_gmt for a future post. Passing only post_date leaves a stale GMT date on an
+    existing draft, and WordPress then silently turns the 'future' post into 'publish' (went live in testing)."""
+    local = _parse_date(when)
+    gmt = ctx.wp.text("eval", f"echo get_gmt_from_date('{local}');").strip()
+    if not re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", gmt):
+        raise BlogError(f"could not convert {local!r} to GMT", hint="check `blog wp -- option get timezone_string`")
+    if gmt <= dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"):
+        raise BlogError(f"{when!r} is in the past", hint="a past date would publish the post immediately; use `blog publish`")
+    return [f"--post_date={local}", f"--post_date_gmt={gmt}"]
+
+
+def _norm(s):
+    return re.sub(r"[\W_]+", "", html.unescape(s).lower())
+
+
+def live_check(ctx, info):
+    """One cache-bypassing fetch of the public page: HTTP 200, complete HTML, no error text, title present."""
+    from .maint import ERROR_MARKERS, bust, fetch
+    for attempt in range(3):
+        status, body = fetch(bust(info["url"]))
+        low = body.lower()
+        errors = [m for m in ERROR_MARKERS if m in low]
+        title_ok = _norm(info["post_title"]) in _norm(body)
+        if status == 200 and "</html>" in low and title_ok and not errors:
+            break
+        time.sleep(2)
+    return {"ok": status == 200 and title_ok and not errors, "http": status, "title_found": title_ok, "errors": errors}
+
+
+def _summary(ctx, pid, note=None, check=False):
     info = ctx.wp.post_info(pid)
     info["terms"] = {"tags": ctx.wp.text("post", "term", "list", pid, "post_tag", "--field=name").splitlines(),
                      "categories": ctx.wp.text("post", "term", "list", pid, "category", "--field=name").splitlines()}
+
+    if check and info["post_status"] == "publish":
+        info["live_check"] = live_check(ctx, info)
 
     def human():
         if note:
@@ -108,6 +145,11 @@ def _summary(ctx, pid, note=None):
         print(f"  id      {info['ID']}\n  title   {info['post_title']}\n  status  {info['post_status']}\n"
               f"  tags    {', '.join(info['terms']['tags']) or '-'}\n  cats    {', '.join(info['terms']['categories']) or '-'}\n"
               f"  url     {info['url']}")
+        lc = info.get("live_check")
+        if lc:
+            print("  live    " + ("OK (HTTP 200, title found)" if lc["ok"] else
+                                  f"PROBLEM: HTTP {lc['http']}, title {'found' if lc['title_found'] else 'MISSING'}"
+                                  + (f", page contains: {', '.join(lc['errors'])}" if lc["errors"] else "")))
     ctx.emit(info, human)
 
 
@@ -134,6 +176,11 @@ def cmd_new(ctx, a):
     date = _parse_date(a.schedule or meta["date"]) if (a.schedule or meta.get("date")) else None
     content = body if a.html else md.convert(body, breaks=a.breaks)
     slug = a.slug or meta.get("slug")
+    if not slug and getattr(a, "translit", False):
+        slug = md.slugify(title)
+    excerpt = meta.get("excerpt")
+    image = getattr(a, "image", None) or meta.get("featured_image")
+    image_alt = getattr(a, "image_alt", None) or meta.get("featured_alt") or title
 
     if cats:
         cats = _match_terms(cats, ctx.wp.terms("category"), "category", create_ok=False)
@@ -142,23 +189,52 @@ def cmd_new(ctx, a):
 
     if a.dry_run:
         ctx.emit({"title": title, "status": status, "slug": slug, "date": date, "tags": tags,
-                  "categories": cats, "content": content},
+                  "categories": cats, "excerpt": excerpt, "image": image, "content": content},
                  lambda: print(f"title:  {title}\nstatus: {status}  date: {date or '-'}  slug: {slug or '-'}\n"
-                               f"tags:   {', '.join(tags) or '-'}\ncats:   {', '.join(cats) or '-'}\n\n{content}"))
+                               f"tags:   {', '.join(tags) or '-'}\ncats:   {', '.join(cats) or '-'}\n"
+                               f"image:  {image or '-'}\nexcerpt: {excerpt or '-'}\n\n{content}"))
         return
 
     args = ["post", "create", "-", "--porcelain", f"--post_title={title}", f"--post_status={status}",
             f"--post_author={ctx.wp.author_id()}"]
     if slug:
         args.append(f"--post_name={slug}")
-    if date:
+    if excerpt:
+        args.append(f"--post_excerpt={excerpt}")
+    if a.schedule:
+        args += _schedule_fields(ctx, a.schedule)
+    elif date:
         args.append(f"--post_date={date}")
     pid = int(ctx.wp.text(*args, stdin=content, mutating=True))
     _set_terms(ctx, pid, "post_tag", tags)
     _set_terms(ctx, pid, "category", cats)
-    _summary(ctx, pid, note=f"created {status} post")
+    if image:   # a failed upload must not lose the post: it already exists, so only warn
+        try:
+            _media_upload(ctx, argparse.Namespace(source=image, title=None, alt=image_alt, attach=str(pid),
+                                                  featured=True))
+        except BlogError as e:
+            ctx.info(f"warning: post {pid} created, but the featured image failed: {e}")
+    _summary(ctx, pid, note=f"created {status} post", check=(status == "publish"))
     if status == "draft":
         ctx.info("\n(draft — not public. Publish with: blog publish %d)" % pid)
+
+
+def cmd_quote(ctx, a):
+    """A quote with attribution and a source link — nothing else is added."""
+    text = _read_source(a, allow_editor=False)
+    if text is None or not text.strip():
+        raise BlogError("no quote text", hint="pipe it on stdin, or use --body / --file")
+    cite = a.source or ""
+    if a.url:
+        label = a.via or re.sub(r"^www\.", "", re.sub(r"^https?://", "", a.url).split("/")[0])
+        cite = f"{cite}, via [{label}]({a.url})" if cite else f"[{label}]({a.url})"
+    elif a.via:
+        cite = f"{cite}, via {a.via}" if cite else a.via
+    lines = ["> " + ln if ln.strip() else ">" for ln in text.strip().splitlines()]
+    if cite:
+        lines += [">", "> — " + cite]
+    a.body, a.file, a.html, a.breaks = "\n".join(lines), None, False, False
+    cmd_new(ctx, a)
 
 
 # ------------------------------------------------------------------ edit
@@ -173,7 +249,7 @@ def cmd_edit(ctx, a):
     if a.status:
         fields.append(f"--post_status={a.status}")
     if a.schedule:
-        fields += [f"--post_date={_parse_date(a.schedule)}", "--post_status=future"]
+        fields += [*_schedule_fields(ctx, a.schedule), "--post_status=future"]
 
     content = None
     if a.file or a.body is not None or not sys.stdin.isatty():
@@ -240,7 +316,7 @@ def cmd_show(ctx, a):
 def _set_status(ctx, a, status, note):
     pid = ctx.wp.resolve_post(a.post)
     ctx.wp.run("post", "update", pid, f"--post_status={status}", mutating=True)
-    _summary(ctx, pid, note=note)
+    _summary(ctx, pid, note=note, check=(status == "publish"))
 
 
 def cmd_publish(ctx, a):
@@ -271,7 +347,7 @@ def cmd_cats(ctx, a):
     ctx.emit(rows, lambda: print(table(rows, ["term_id", "name", "slug", "count"], ["ID", "NAME", "SLUG", "POSTS"])))
 
 
-def cmd_media_add(ctx, a):
+def _media_upload(ctx, a):
     src = a.source
     remote_tmp = None
     if not src.startswith(("http://", "https://")):
@@ -301,6 +377,10 @@ def cmd_media_add(ctx, a):
             ctx.t.run(["rm", "-rf", os.path.dirname(remote_tmp)])
     from .maint import fix_uploads_group   # new upload dirs must belong to the web group
     fix_uploads_group(ctx)
-    url = ctx.wp.text("post", "get", aid, "--field=guid")
+    return aid, ctx.wp.text("post", "get", aid, "--field=guid")
+
+
+def cmd_media_add(ctx, a):
+    aid, url = _media_upload(ctx, a)
     ctx.emit({"id": aid, "url": url, "markdown": f"![{a.alt or ''}]({url})"},
              f"uploaded attachment {aid}\n  url  {url}\n  md   ![{a.alt or ''}]({url})")

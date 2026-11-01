@@ -226,3 +226,23 @@ def split_frontmatter(text):
             meta[k.strip().lower()] = v.strip().strip("\"'")
     rest = text[end + 4:]
     return meta, rest.lstrip("\n")
+
+
+# ------------------------------------------------------------------ slugs
+_GREEK = dict(zip("αβγδεζηθικλμνξοπρσςτυφχψω",
+                  ["a", "v", "g", "d", "e", "z", "i", "th", "i", "k", "l", "m", "n", "x", "o", "p", "r", "s", "s",
+                   "t", "y", "f", "ch", "ps", "o"]))
+_GREEK_DIGRAPHS = (("ου", "ou"), ("μπ", "b"), ("ντ", "d"), ("γγ", "ng"), ("γκ", "gk"), ("αυ", "av"), ("ευ", "ev"))
+
+
+def slugify(text):
+    """ASCII slug; Greek is transliterated (ELOT 743-ish) instead of becoming %CE%.. in the permalink."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", text.lower())
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.replace("ΐ", "ι")
+    for a, b in _GREEK_DIGRAPHS:
+        s = s.replace(a, b)
+    s = "".join(_GREEK.get(c, c) for c in s)
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-")

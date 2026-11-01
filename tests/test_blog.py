@@ -162,3 +162,55 @@ class AutoUpdateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EditorialTests(unittest.TestCase):
+    class FakeWP:
+        def __init__(self, gmt):
+            self.gmt = gmt
+
+        def text(self, *a, **k):
+            return self.gmt + "\n"
+
+    class FakeCtx:
+        def __init__(self, gmt):
+            self.wp = EditorialTests.FakeWP(gmt)
+
+    def test_schedule_sends_gmt_date(self):
+        # without post_date_gmt WordPress silently turned a scheduled draft into a published post
+        from blog.editorial import _schedule_fields
+        f = _schedule_fields(self.FakeCtx("2099-01-01 07:00:00"), "2099-01-01 09:00")
+        self.assertEqual(f, ["--post_date=2099-01-01 09:00:00", "--post_date_gmt=2099-01-01 07:00:00"])
+
+    def test_schedule_in_the_past_is_refused(self):
+        from blog.editorial import _schedule_fields
+        with self.assertRaises(BlogError):
+            _schedule_fields(self.FakeCtx("2020-01-01 07:00:00"), "2020-01-01 09:00")
+
+    def test_schedule_bad_gmt_is_refused(self):
+        from blog.editorial import _schedule_fields
+        with self.assertRaises(BlogError):
+            _schedule_fields(self.FakeCtx("Warning: something"), "2099-01-01 09:00")
+
+    def test_slugify_greek_and_latin(self):
+        self.assertEqual(md.slugify("AI: Get onboard or get crushed!"), "ai-get-onboard-or-get-crushed")
+        self.assertEqual(md.slugify("Τι Είναι και Πώς Λειτουργεί"), "ti-einai-kai-pos-leitourgei")
+        self.assertEqual(md.slugify("Μπάλα Ουρανός"), "bala-ouranos")
+
+    def test_title_match_ignores_typography(self):
+        from blog.editorial import _norm
+        self.assertIn(_norm("It's a test - ok"), _norm("<h1>It&#8217;s a test &#8211; ok</h1>"))
+
+
+class UpdateCheckTests(unittest.TestCase):
+    def test_parse_checks(self):
+        from blog.maint import parse_checks
+        self.assertEqual(parse_checks("https://x.org/", ["/a/b/=hello=world", "https://y.org/c=T"]),
+                         [("https://x.org/a/b/", "hello=world"), ("https://y.org/c", "T")])
+        self.assertEqual(parse_checks("https://x.org", None), [])
+
+    def test_parse_checks_rejects_malformed(self):
+        from blog.maint import parse_checks
+        for bad in ("/a/", "=text", "/a/="):
+            with self.assertRaises(BlogError):
+                parse_checks("https://x.org", [bad])

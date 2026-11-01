@@ -12,13 +12,14 @@
 
 ## Editorial
 - [x] Markdown → Gutenberg converter; `new`, `edit`, `ls`, `show`, `publish`
-- [~] `unpublish`, `trash`, `new --schedule`, `edit` via `$EDITOR`, `edit -f`, `media` upload
-- [ ] Front matter: `featured_image`, `excerpt`, `date`; `blog new --image URL|PATH`
+- [x] `unpublish`, `trash`, `new --schedule`, `edit --schedule`, `edit` via `$EDITOR`, `edit -f`, `media --attach --featured` — exercised on throwaway drafts and cleaned up (found and fixed a bug: `edit --schedule` published the post instead of scheduling it)
+- [~] `media` from a URL, and `publish` on a scheduled post, not exercised
+- [x] Front matter: `featured_image`, `excerpt`, `date`; `blog new --image URL|PATH`
 - [ ] Nested lists and tables; wp-syntax-style code blocks (`<pre lang=…>`) option
-- [ ] `blog quote` shortcut ("paste a quote + source link" workflow)
+- [x] `blog quote` shortcut ("paste a quote + source link" workflow)
 - [ ] Pages in `new`/`edit`; `blog comments ls|approve|spam|delete`
-- [ ] Post-publish check built into `publish` (fetch the URL with a browser UA, confirm the title)
-- [ ] Transliterated slugs for non-Latin titles
+- [~] Post-publish live check in `publish` / `new --publish` (check function verified on a live page; the publish wiring itself has only run for real on the next post)
+- [x] Transliterated slugs for Greek titles (`--translit`, opt-in)
 
 ## Maintenance
 - [x] `backup`, `backups`, `clean-backups`, `restore` (path-level restore verified; full DB/files restore not run on a real site)
@@ -36,8 +37,8 @@
 ## Agent polish
 - [x] `--json` everywhere, `agent-help`, AGENTS.md
 - [ ] `blog snapshot before|after`: rate-limited multi-page structural diff (menu, widgets, headings, assets, error text)
-- [ ] Plugin-aware smoke tests: `update --check URL=expected-text`, remembered per plugin
-- [ ] `update --pause` stop after each major item and print what to inspect
+- [~] Plugin-aware smoke tests: `update --check URL=expected-text` done (verified read-only against the math page); *remembering* checks per plugin in config still open
+- [x] `update --pause` (interactive, tty only; agents update one item by name instead)
 - [ ] Consistent JSON error schema and exit codes; mocked-transport tests for editorial/ops; integration tests against a throwaway WordPress
 - [ ] `status` speed (batch wp-cli calls); say "major only" when only a major core release is pending
 - [ ] `doctor`: report active firewall-plugin blocks and whether the caller's IP is among them

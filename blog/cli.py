@@ -47,6 +47,23 @@ def build_parser():
     p.add_argument("--cat", "-c", action="append", help="comma-separated categories (must already exist)")
     p.add_argument("--publish", "-p", action="store_true", help="publish immediately instead of saving a draft")
     p.add_argument("--dry-run", action="store_true", help="show what would be created; change nothing")
+    p.add_argument("--image", metavar="PATH_OR_URL", help="upload this image and set it as the featured image")
+    p.add_argument("--image-alt", help="alt text for --image (default: the title)")
+    p.add_argument("--translit", action="store_true", help="make the slug from the title, transliterating Greek to Latin")
+
+    p = add("quote", editorial.cmd_quote, "post a quote with attribution + source link (nothing else is added)")
+    p.add_argument("title", help="post title")
+    p.add_argument("--source", help="who said it, e.g. \"Proton's CEO\"")
+    p.add_argument("--via", help="where you saw it, e.g. Slashdot (default: the URL's host)")
+    p.add_argument("--url", help="link to the original article")
+    content_opts(p)
+    p.add_argument("--tags", "-t", action="append")
+    p.add_argument("--cat", "-c", action="append")
+    p.add_argument("--publish", "-p", action="store_true", help="publish immediately instead of saving a draft")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--image", metavar="PATH_OR_URL")
+    p.add_argument("--image-alt")
+    p.add_argument("--translit", action="store_true")
 
     p = add("edit", editorial.cmd_edit, "edit a post: flags, --file/--body, or $EDITOR on the raw content")
     p.add_argument("post", help="ID or slug")
@@ -130,6 +147,9 @@ def build_parser():
     p.add_argument("--allow-major", action="store_true", help="also apply major-version updates")
     p.add_argument("--include-inactive", action="store_true", help="also update inactive plugins/themes")
     p.add_argument("--no-backup", action="store_true", help="skip the pre-update backup (not recommended)")
+    p.add_argument("--check", action="append", metavar="URL=TEXT",
+                   help="extra smoke test, repeatable: the page (path like /2008/08/x/ or full URL) must contain TEXT, before and after each update")
+    p.add_argument("--pause", action="store_true", help="interactive: stop after each update so you can inspect the site")
 
     p = add("cache", None, "page cache: `blog cache purge` removes this site's nginx FastCGI cache entries only")
     p.add_argument("action", choices=["purge"])
@@ -179,6 +199,9 @@ EDITORIAL
       Body is Markdown, converted to Gutenberg blocks (quotes, lists, code, links, bare YouTube URLs -> embeds).
       File may carry front matter (title/tags/category/slug/date/status) or start with '# Title'.
       Categories must exist (`blog cats`); tags are matched case-insensitively and created if new.
+  blog quote "Title" --source "Who" --via Slashdot --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
+  blog new ... [--image PATH_OR_URL [--image-alt ..]] [--translit]   front matter also: excerpt, featured_image, featured_alt
+      publish / new --publish end with a live check (cache-bypassing fetch: HTTP 200, title present, no error text).
   blog edit ID|slug [--title ..] [--add-tag ..] [--remove-tag ..] [--cat ..] [--status ..] [-f new.md] (no flags + tty = $EDITOR on raw blocks)
   blog ls [-n 20] [--status draft] [--tag x] [--cat slug] [-s text]   |   blog show ID [--raw]
   blog publish ID | blog unpublish ID | blog trash ID [--force --yes]
@@ -192,7 +215,7 @@ MAINTENANCE / SWISS ARMY
   blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
-  blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive]
+  blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive] [--check URL=TEXT]... [--pause]
       Without --yes it only prints the plan. Applies safe updates, holds back majors / inactive / web-writable plugins.
       With --yes: health check -> backup -> one update at a time -> health check (browser UA) -> auto-rollback of plugins/themes.
   blog status [--deep]        versions, pending updates, HTTP/TLS, disk, post/user counts

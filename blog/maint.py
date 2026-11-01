@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 import time
 from datetime import datetime, timedelta
 import urllib.error
@@ -256,9 +257,23 @@ def bust(url):
     return url + ("&" if "?" in url else "?") + f"blogcheck={int(time.time())}"
 
 
-def health(ctx, urls, retries=3):
+def parse_checks(site_url, specs):
+    """['URL=TEXT', ...] -> [(absolute url, text)]. A leading '/' means 'on this site'."""
+    out = []
+    for spec in specs or []:
+        url, sep, text = spec.partition("=")
+        if not sep or not url or not text:
+            raise BlogError(f"bad --check {spec!r}", hint="use URL=TEXT, e.g. --check /2008/08/02/prime-numbers-generator/='math-img'")
+        if url.startswith("/"):
+            url = site_url.rstrip("/") + url
+        out.append((url, text))
+    return out
+
+
+def health(ctx, urls, retries=3, checks=()):
     """WordPress boots under wp-cli, and every URL — fetched past the page cache — returns 200 with a complete,
-    error-free HTML page."""
+    error-free HTML page. `checks` are extra (url, text) pairs: the page must also contain the text (case-insensitive),
+    which is how plugin-specific output (math images, galleries, sitemaps) gets verified."""
     problems = []
     boot = ctx.wp.run("eval", "echo 'wp-ok';", check=False)
     if "wp-ok" not in boot.out:
@@ -273,6 +288,14 @@ def health(ctx, urls, retries=3):
             time.sleep(3)
         else:
             problems.append(f"{u} -> HTTP {status}" + (f", page contains: {', '.join(found)}" if found else ""))
+    for u, text in checks:
+        for attempt in range(retries):
+            status, body = fetch(bust(u))
+            if status == 200 and text.lower() in body.lower():
+                break
+            time.sleep(3)
+        else:
+            problems.append(f"{u} -> expected text {text!r} " + ("is missing" if status == 200 else f"(HTTP {status})"))
     return problems
 
 
@@ -403,12 +426,17 @@ def run_update(ctx, a):
     result = {"plan": plan, "applied": False, "results": []}
     if not a.yes or not todo:
         return result, (lambda: (_plan_human(ctx, plan), print("\ndry run — nothing changed. Apply with: blog update --yes" if todo else "")))
+    pause = getattr(a, "pause", False)
+    if pause and (ctx.json or not sys.stdin.isatty()):
+        raise BlogError("--pause needs an interactive terminal", hint="agents: update one item at a time by name instead (blog update SLUG --yes)")
     if not ctx.json:
         _plan_human(ctx, plan)
 
     posts = ctx.wp.json("post", "list", "--post_status=publish", "--posts_per_page=1", "--fields=url")
-    urls = [ctx.site.url or ctx.wp.text("option", "get", "siteurl")] + [p["url"] for p in posts]
-    pre = health(ctx, urls, retries=1)
+    site_url = ctx.site.url or ctx.wp.text("option", "get", "siteurl")
+    urls = [site_url] + [p["url"] for p in posts]
+    checks = parse_checks(site_url, getattr(a, "check", None))
+    pre = health(ctx, urls, retries=1, checks=checks)
     if pre:
         raise BlogError("site is unhealthy BEFORE updating — refusing to continue", hint="; ".join(pre))
 
@@ -446,7 +474,7 @@ def run_update(ctx, a):
             if fixed:
                 ctx.info(f"  fixed group on {fixed} new path(s) under uploads/")
             new = ctx.wp.text("core", "version") if it["kind"] == "core" else ctx.wp.text(it["kind"], "get", it["name"], "--field=version")
-            problems = health(ctx, urls)
+            problems = health(ctx, urls, checks=checks)
             err = None
         except BlogError as e:
             new, problems, err = None, [e.message], e
@@ -457,7 +485,7 @@ def run_update(ctx, a):
                 ctx.info(f"  FAILED: {'; '.join(problems)}\n  rolling back {it['name']} from {backup['name']} …")
                 restore_paths(ctx, backup, _paths_for(it))
                 ctx.wp.run("cache", "flush", check=False)
-                again = health(ctx, urls)
+                again = health(ctx, urls, checks=checks)
                 entry["rolled_back"] = True
                 entry["healthy_after_rollback"] = not again
                 if again:
@@ -470,6 +498,10 @@ def run_update(ctx, a):
             break
         ctx.info(f"  ok ({new})")
         result["results"].append(entry)
+        if pause and it is not todo[-1]:
+            if input(f"  inspect the site now. Continue with the next update ({len(todo) - len(result['results'])} left)? [y/N] ").strip().lower() != "y":
+                ctx.info("  stopped by you; the remaining updates were not applied")
+                break
 
     result["applied"] = True
     result["ok"] = not failed

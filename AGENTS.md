@@ -46,6 +46,11 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
   line becomes the citation), flat lists, fenced code, `---`, and a bare YouTube/Vimeo URL on its own line (becomes an embed). Not
   supported: tables, nested lists. HTML in the input is escaped (`--html` passes raw block HTML through). Single newlines join (CommonMark);
   `--breaks` keeps them. Categories must already exist (`blog cats`); tags are matched case-insensitively and created if new.
+- **Scheduling:** WordPress turns a `future` post into `publish` if its GMT date is already past, so the tool always sends
+  `post_date_gmt` with `post_date` and refuses past dates. Never set `--post_status=future` via raw `wp post update` without a GMT date.
+- **Testing editorial commands:** use throwaway drafts titled `ZZ …` (never `publish` them — use `private`/`future` to stand in),
+  then delete posts, attachments and new tags and compare `SELECT COUNT(*)` before/after. Attaching media to a future-dated post
+  creates `uploads/<future year>/` — remove the empty directories afterwards.
 - **Editing existing posts:** `blog edit ID` with no flags opens the *raw* block HTML; `-f new.md` replaces the whole body with converted
   Markdown. Don't round-trip an old post through Markdown unless the owner wants it rewritten.
 
@@ -60,6 +65,9 @@ EDITORIAL
       Body is Markdown, converted to Gutenberg blocks (quotes, lists, code, links, bare YouTube URLs -> embeds).
       File may carry front matter (title/tags/category/slug/date/status) or start with '# Title'.
       Categories must exist (`blog cats`); tags are matched case-insensitively and created if new.
+  blog quote "Title" --source "Who" --via Slashdot --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
+  blog new ... [--image PATH_OR_URL [--image-alt ..]] [--translit]   front matter also: excerpt, featured_image, featured_alt
+      publish / new --publish end with a live check (cache-bypassing fetch: HTTP 200, title present, no error text).
   blog edit ID|slug [--title ..] [--add-tag ..] [--remove-tag ..] [--cat ..] [--status ..] [-f new.md] (no flags + tty = $EDITOR on raw blocks)
   blog ls [-n 20] [--status draft] [--tag x] [--cat slug] [-s text]   |   blog show ID [--raw]
   blog publish ID | blog unpublish ID | blog trash ID [--force --yes]
@@ -72,8 +80,10 @@ MAINTENANCE / SWISS ARMY
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
   blog cache purge            drop this site's cached pages (nginx FastCGI cache; other sites untouched)
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
-  blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive]
+  blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive] [--check URL=TEXT]... [--pause]
       Without --yes it only prints the plan. Applies safe updates, holds back majors / inactive / web-writable plugins.
+      --check /path/=TEXT adds a plugin-specific smoke test (page must contain TEXT) run before and after every update;
+      --pause (humans, tty only) stops after each update for inspection.
       With --yes: health check -> backup -> one update at a time -> health check (browser UA) -> auto-rollback of plugins/themes.
   blog status [--deep]        versions, pending updates, HTTP/TLS, disk, post/user counts
   blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target
