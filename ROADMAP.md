@@ -36,7 +36,8 @@
 - [ ] `db`: size, optimize, `search-replace --dry-run`, autoload report; `log tail`; `cron` health
 - [x] TLS/disk/stale-backup warnings in `status` and in the `auto-update` mail (mailed only when a warning is new)
 - [ ] certbot-specific check (why renewal failed), not just "days left"
-- [ ] Backup: scheduled runs and an off-server copy
+- [x] Backup freshness from the host's own backup directory (`external_backup_dir`)
+- [ ] Backup: an off-server copy (the host's daily backups stay on the same machine unless shipped elsewhere)
 
 ## Agent polish
 - [x] `--json` everywhere, `agent-help`, AGENTS.md

@@ -486,3 +486,35 @@ class FixEntitiesTests(unittest.TestCase):
         self.assertEqual(fix_entities(src)[0], src)
         once = fix_entities('<pre class="EnlighterJSRAW">x &amp;amp; y</pre>')[0]
         self.assertEqual(fix_entities(once)[0], once)
+
+
+class ExternalBackupTests(unittest.TestCase):
+    D = "/var/backups-sites/site"
+
+    def test_parse_picks_the_newest_file(self):
+        from blog.security import parse_external_backups
+        now = 1_000_000_000.0
+        out = f"{now - 5 * 86400 - 10} 261027_backup_site.tar.zst\n{now - 3600} 261101_backup_site.tar.zst\n"
+        r = parse_external_backups(out, now, self.D)
+        self.assertEqual((r["days"], r["newest"]), (0, "261101_backup_site.tar.zst"))
+        self.assertEqual(parse_external_backups(f"{now - 2 * 86400 - 5} a.tar.zst\n", now, self.D)["days"], 2)
+
+    def test_parse_empty_and_garbage(self):
+        from blog.security import parse_external_backups
+        self.assertIsNone(parse_external_backups("", 1.0, self.D)["days"])
+        self.assertIsNone(parse_external_backups("nonsense line\n", 1.0, self.D)["days"])
+
+    def test_external_backup_replaces_the_blog_backup_age(self):
+        from blog.security import host_warnings
+        fresh = {"dir": self.D, "days": 0, "error": None}
+        # blog's own backup is 90 days old, but the host's daily backup is fresh: no warning
+        self.assertEqual(host_warnings({"last_backup_days": 90, "external_backup": fresh}), [])
+        # and without an external directory configured the old 30-day rule still applies
+        self.assertEqual(len(host_warnings({"last_backup_days": 90})), 1)
+
+    def test_stalled_missing_and_unreadable_external_backup_warn(self):
+        from blog.security import host_warnings
+        self.assertEqual(host_warnings({"external_backup": {"dir": self.D, "days": 2, "error": None}}), [])
+        self.assertIn("stalled", host_warnings({"external_backup": {"dir": self.D, "days": 3, "error": None}})[0])
+        self.assertIn("no daily backup", host_warnings({"external_backup": {"dir": self.D, "days": None, "error": None}})[0])
+        self.assertIn("cannot read", host_warnings({"external_backup": {"dir": self.D, "days": None, "error": "sudo: a password is required"}})[0])

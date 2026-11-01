@@ -16,7 +16,8 @@ from .errors import BlogError
 q = shlex.quote
 DISK_WARN_PCT = 85
 TLS_WARN_DAYS = 21          # Let's Encrypt renews at 30 days left; under 21 means renewal is failing
-BACKUP_WARN_DAYS = 30
+BACKUP_WARN_DAYS = 30        # only used when no external (host) backup directory is configured
+EXTERNAL_BACKUP_WARN_DAYS = 3   # the host's backup is daily: 3 days without a new file means two runs were missed
 ABANDONED_DAYS = 730
 
 
@@ -38,7 +39,15 @@ def host_warnings(st):
                 w.append(f"disk is {pct}% full ({disk[2]} available)")
         except ValueError:
             pass
-    if "last_backup_days" in st:
+    ext = st.get("external_backup")
+    if ext is not None:      # the host's own daily backups are the ones that matter; blog's own backups are on-demand extras
+        if ext.get("error"):
+            w.append(f"cannot read the server's daily backups in {ext['dir']} ({ext['error']})")
+        elif ext.get("days") is None:
+            w.append(f"no daily backup found in {ext['dir']}")
+        elif ext["days"] >= EXTERNAL_BACKUP_WARN_DAYS:
+            w.append(f"the server's daily backup looks stalled: newest is {ext['days']} days old ({ext['dir']})")
+    elif "last_backup_days" in st:
         age = st["last_backup_days"]
         if age is None:
             w.append("no backups exist on the server")
@@ -56,13 +65,40 @@ def backup_age_days(ctx):
     return max(0, (datetime.now() - newest).days)
 
 
+def parse_external_backups(out, now, directory):
+    """Output of `find -printf '%T@ %f\n'` -> {dir, days, error, newest}. Pure, so it can be tested."""
+    found = []
+    for line in out.splitlines():
+        head, _, name = line.strip().partition(" ")
+        try:
+            found.append((float(head), name))
+        except ValueError:
+            continue
+    if not found:
+        return {"dir": directory, "days": None, "error": None, "newest": None}
+    stamp, name = max(found)
+    return {"dir": directory, "days": max(0, int((now - stamp) // 86400)), "error": None, "newest": name}
+
+
+def external_backup_info(ctx):
+    """Age of the newest big archive in the host's backup directory (root-owned, so read with `sudo -n`; metadata only)."""
+    directory = getattr(ctx.site, "external_backup_dir", "")
+    if not directory:
+        return None
+    r = ctx.t.sh(f"sudo -n find {q(directory)} -maxdepth 1 -type f -size +1M -name '*.tar*' -printf '%T@ %f\\n'", check=False)
+    if not r.ok:
+        err = (r.err or r.out).strip().splitlines()
+        return {"dir": directory, "days": None, "error": (err[-1] if err else f"exit {r.code}")[:120], "newest": None}
+    return parse_external_backups(r.out, time.time(), directory)
+
+
 def host_warnings_for(ctx):
     """The cheap subset used by the unattended updater (no WP-CLI round trips except the backup list)."""
     from .ops import _tls_days
     url = ctx.site.url or ctx.wp.text("option", "get", "siteurl")
     df = ctx.t.run(["df", "-h", "--output=size,used,avail,pcent", ctx.site.path]).out.strip().splitlines()
     st = {"tls_days_left": _tls_days(url), "disk": df[-1].split() if len(df) > 1 else None,
-          "last_backup_days": backup_age_days(ctx)}
+          "last_backup_days": backup_age_days(ctx), "external_backup": external_backup_info(ctx)}
     return host_warnings(st)
 
 
@@ -189,10 +225,13 @@ def security_rows(ctx, offline=False):
     url = ctx.site.url or wp.text("option", "get", "siteurl")
     df = ctx.t.run(["df", "-h", "--output=size,used,avail,pcent", root]).out.strip().splitlines()
     host = {"tls_days_left": _tls_days(url), "disk": df[-1].split() if len(df) > 1 else None,
-            "last_backup_days": backup_age_days(ctx)}
+            "last_backup_days": backup_age_days(ctx), "external_backup": external_backup_info(ctx)}
     hw = host_warnings(host)
+    ext = host["external_backup"]
+    backups = (f"server daily backup {ext['days']} day(s) old" if ext and ext.get("days") is not None
+               else f"newest blog backup {host['last_backup_days']} day(s) old")
     add("warn" if hw else "ok", "host", "; ".join(hw) if hw else
-        f"TLS {host['tls_days_left']} days left, disk {host['disk'][3] if host['disk'] else '?'}, newest backup {host['last_backup_days']} day(s) old")
+        f"TLS {host['tls_days_left']} days left, disk {host['disk'][3] if host['disk'] else '?'}, {backups}")
     return rows
 
 

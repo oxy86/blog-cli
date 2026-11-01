@@ -46,6 +46,8 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
 - **Don't chain a verification with the next step** (`a && b && c` with `| tail` hides exit codes): check the result, then continue.
 - **Replacing a firewall/security plugin directory:** stage inside the same filesystem, then two quick `mv` renames (a missing plugin file silently
   disables a mu-plugin loader). Keep the old copy outside the web root (mode 700), never in `wp-content`.
+- **Host backups:** if the host already makes backups of the site (e.g. a root cron job), set `external_backup_dir` in the config: `status`/`security`/`notify`
+  then judge backup freshness by that directory (read with `sudo -n find`, metadata only; warns at 3 days, or if it is empty/unreadable) instead of the age of `blog backup` copies.
 - **Shared caches:** if several sites share one nginx FastCGI cache, never wipe it — `blog cache purge` deletes only this site's entries.
 - **Restores from tar as a non-root user don't restore group ownership** — re-apply the web group (the tool does).
 - **Firewall plugins block clients that make "multiple erroneous requests"** (repeated 404s, failed logins). Test admin-ish endpoints from

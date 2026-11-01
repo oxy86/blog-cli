@@ -24,6 +24,7 @@ class Site:
     cache_dir: str = "/run/nginx_fastcgi_cache"   # nginx fastcgi_cache_path (shared by every site on the server)
     notify_email: str = ""         # where `blog auto-update` mails problems/summaries (empty = no mail)
     keep_backups: int = 3          # backups kept by `blog auto-update` after a successful run
+    external_backup_dir: str = ""  # a root-owned directory where the host's own (daily) backups of this site land; read with `sudo -n`, read-only
     accept_closed: tuple = ()      # plugin slugs closed on wordpress.org that the owner knowingly runs (vendor ships its own updates)
     web_group: str = "www-data"    # group that must keep read-only access to WordPress files
     ssh_options: list = field(default_factory=list)

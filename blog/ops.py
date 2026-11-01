@@ -139,6 +139,8 @@ def collect_status(ctx, deep=False):
     st["tls_days_left"] = _tls_days(st["url"])
     from .security import backup_age_days
     st["last_backup_days"] = backup_age_days(ctx)
+    from .security import external_backup_info
+    st["external_backup"] = external_backup_info(ctx)
     if deep:
         r = wp.run("core", "verify-checksums", check=False)
         st["core_checksums_ok"] = r.ok
@@ -157,7 +159,11 @@ def cmd_status(ctx, a):
         if st["tls_days_left"] is not None:
             print(f"  TLS         {st['tls_days_left']} days left")
         b = st["last_backup_days"]
-        print(f"  Backup      " + ("none on the server" if b is None else f"newest is {b} day(s) old"))
+        print(f"  Backup      " + ("no blog backup" if b is None else f"newest blog backup is {b} day(s) old"))
+        ext = st.get("external_backup")
+        if ext:
+            what = f"cannot read ({ext['error']})" if ext.get("error") else ("none found" if ext["days"] is None else f"newest is {ext['days']} day(s) old")
+            print(f"  Server bkp  {what}  [{ext['dir']}]")
         from .security import host_warnings
         warn.extend(host_warnings(st))
         print(f"  Posts       " + ", ".join(f"{k} {v}" for k, v in st["posts"].items() if v or k in ("publish", "draft")))
