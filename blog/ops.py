@@ -189,6 +189,39 @@ def cmd_status(ctx, a):
 
 
 # ------------------------------------------------------------------ doctor / init
+def optional_checks(ctx):
+    """Capabilities that only some features need. Informational: never makes `doctor` fail.
+    -> [{check, ok, detail, feature}] (ok False means that feature will not work on this server)."""
+    import shutil
+    rows = []
+
+    def probe(name, feature, cmd, yes, no):
+        r = ctx.t.sh(cmd, check=False)
+        rows.append({"check": name, "ok": bool(r.ok and r.out.strip() != "no"), "feature": feature,
+                     "detail": (yes.format(out=r.out.strip().splitlines()[0] if r.out.strip() else "")
+                                if r.ok and r.out.strip() != "no" else no)})
+    probe("php", "everything (wp-cli needs it)", "php -r 'echo PHP_VERSION;'", "PHP {out}", "php not found on the target")
+    probe("mysqldump", "backup, restore", "command -v mysqldump", "{out}", "missing: `blog backup` needs it (wp db export)")
+    probe("tar + gzip", "backup, restore", "command -v tar && command -v gzip", "found", "missing: backups need tar and gzip")
+    probe("mail", "notify, auto-update e-mails", "command -v mail || command -v mailx", "{out}",
+          "no `mail` command: notify/auto-update cannot send e-mail (install bsd-mailx or similar)")
+    probe("passwordless sudo", "cache purge, external_backup_dir", "sudo -n true && echo yes || echo no", "sudo -n works",
+          "`sudo -n` is not allowed: `blog cache purge` and external_backup_dir will not work (everything else does)")
+    probe("page cache dir", "cache purge", f"test -d {shlex_quote(ctx.site.cache_dir)} && echo yes || echo no", ctx.site.cache_dir,
+          f"{ctx.site.cache_dir} not found: set cache_dir to your nginx fastcgi_cache_path, or ignore if you have no page cache")
+    if ctx.t.kind == "ssh":
+        have_local = shutil.which("rsync") is not None
+        probe("rsync (target)", "deploy", "command -v rsync", "{out}", "missing on the target: `blog deploy` needs rsync (or git clone the tool instead)")
+        rows.append({"check": "rsync (local)", "ok": have_local, "feature": "deploy",
+                     "detail": "found" if have_local else "missing here: `blog deploy` needs rsync"})
+    return rows
+
+
+def shlex_quote(s):
+    import shlex
+    return shlex.quote(s)
+
+
 def cmd_doctor(ctx, a):
     checks = []
 
@@ -201,6 +234,16 @@ def cmd_doctor(ctx, a):
 
     check("transport", lambda: f"{ctx.t.kind}" + (f" -> {ctx.site.host}" if ctx.t.kind == "ssh" else ""))
     check("wordpress root", lambda: ctx.t.run(["test", "-f", "wp-config.php"], check=True) and ctx.site.path)
+    root_ok = checks[-1]["ok"]
+    if not root_ok:      # one root cause: report it once instead of repeating it for every dependent check
+        checks[-1]["detail"] += "  (is `path` the folder that contains wp-config.php?)"
+    real_check = check
+
+    def check(name, fn):                       # noqa: F811 - everything below needs a reachable WordPress root
+        if root_ok:
+            real_check(name, fn)
+        else:
+            checks.append({"check": name, "ok": False, "detail": "skipped (WordPress root not found)"})
     wp_ok = {}
 
     def wp_version():
@@ -208,7 +251,7 @@ def cmd_doctor(ctx, a):
         wp_ok["ok"] = True
         return v
     check("wp-cli", wp_version)
-    if not wp_ok and a.fix:
+    if root_ok and not wp_ok and a.fix:
         def install():
             dest = ctx.site.wp_bin
             script = (f'set -e; mkdir -p "$(dirname {dest})"; t=$(mktemp -d); cd "$t"; '
@@ -239,11 +282,21 @@ def cmd_doctor(ctx, a):
     check("author", lambda: f"{ctx.site.author} (id {ctx.wp.author_id()})")
     check("site url", lambda: ctx.wp.text("option", "get", "siteurl"))
 
+    required_ok = all(c["ok"] for c in checks)
+    optional = optional_checks(ctx) if required_ok else []     # pointless if the basics are broken
+    for o in optional:
+        o["optional"] = True
+
     def human():
         for c in checks:
-            print(f"  {'ok ' if c['ok'] else 'FAIL'}  {c['check']:<16} {c['detail']}")
-    ctx.emit(checks, human)
-    return 0 if all(c["ok"] for c in checks) else 1
+            print(f"  {'ok ' if c['ok'] else 'FAIL'}  {c['check']:<18} {c['detail']}")
+        if optional:
+            print("\noptional features (informational; a missing item only disables the feature named):")
+            for o in optional:
+                print(f"  {'ok ' if o['ok'] else 'n/a '}  {o['check']:<18} {o['detail']}")
+        print("\n" + ("ready." if required_ok else "fix the FAIL lines above first."))
+    ctx.emit(checks + optional, human)
+    return 0 if required_ok else 1
 
 
 def cmd_init(args):

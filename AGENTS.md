@@ -108,7 +108,7 @@ MAINTENANCE / SWISS ARMY
       --pause (humans, tty only) stops after each update for inspection.
       With --yes: health check -> backup -> one update at a time -> health check (browser UA) -> auto-rollback of plugins/themes.
   blog status [--deep]        versions, pending updates, HTTP/TLS, disk, post/user counts
-  blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target
+  blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target; also lists which optional features (mail, sudo, rsync, page cache) work here
   blog wp -- <any wp-cli args>   e.g. blog wp -- plugin list --format=json
   blog sql "SELECT ..."       read-only unless --write
   blog sh "cmd"               shell on target in WP root     blog eval 'php'     blog eval-file x.php

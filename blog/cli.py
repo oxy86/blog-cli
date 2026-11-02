@@ -53,7 +53,7 @@ def build_parser():
 
     p = add("quote", editorial.cmd_quote, "post a quote with attribution + source link (nothing else is added)")
     p.add_argument("title", help="post title")
-    p.add_argument("--source", help="who said it, e.g. \"Proton's CEO\"")
+    p.add_argument("--source", help="who said it, e.g. \"Jane Doe\" or \"Example Corp's CEO\"")
     p.add_argument("--via", help="where you saw it, e.g. Slashdot (default: the URL's host)")
     p.add_argument("--url", help="link to the original article")
     content_opts(p)
@@ -251,7 +251,7 @@ MAINTENANCE / SWISS ARMY
       Without --yes it only prints the plan. Applies safe updates, holds back majors / inactive / web-writable plugins.
       With --yes: health check -> backup -> one update at a time -> health check (browser UA) -> auto-rollback of plugins/themes.
   blog status [--deep]        versions, pending updates, HTTP/TLS, disk, post/user counts
-  blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target
+  blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target; also lists which optional features (mail, sudo, rsync, page cache) work here
   blog wp -- <any wp-cli args>   e.g. blog wp -- plugin list --format=json
   blog sql "SELECT ..."       read-only unless --write
   blog sh "cmd"               shell on target in WP root     blog eval 'php'     blog eval-file x.php

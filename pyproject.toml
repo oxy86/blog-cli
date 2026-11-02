@@ -1,16 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "blog"
+name = "blog-cli"
 version = "0.1.0"
-description = "Swiss-army CLI for a WordPress blog: editorial + maintenance, local or over SSH"
+description = "Swiss-army CLI for a WordPress blog: editorial work and maintenance, locally or over SSH"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dimitris Kalamaras" }]
+keywords = ["wordpress", "wp-cli", "cli", "blogging", "maintenance", "ssh"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/oxy86/blog-cli"
+Issues = "https://github.com/oxy86/blog-cli/issues"
 
 [project.scripts]
 blog = "blog.cli:main"
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["blog"]

@@ -518,3 +518,55 @@ class ExternalBackupTests(unittest.TestCase):
         self.assertIn("stalled", host_warnings({"external_backup": {"dir": self.D, "days": 3, "error": None}})[0])
         self.assertIn("no daily backup", host_warnings({"external_backup": {"dir": self.D, "days": None, "error": None}})[0])
         self.assertIn("cannot read", host_warnings({"external_backup": {"dir": self.D, "days": None, "error": "sudo: a password is required"}})[0])
+
+
+class DoctorOptionalTests(unittest.TestCase):
+    class R:
+        def __init__(self, ok, out=""):
+            self.ok, self.out = ok, out
+
+    def ctx(self, answers, kind="local"):
+        import types
+        t = types.SimpleNamespace(kind=kind, sh=lambda cmd, check=False: answers(cmd))
+        site = types.SimpleNamespace(cache_dir="/run/nginx_fastcgi_cache")
+        return types.SimpleNamespace(t=t, site=site)
+
+    def test_reports_what_is_missing_without_failing(self):
+        from blog.ops import optional_checks
+        def answers(cmd):
+            if "php -r" in cmd:
+                return self.R(True, "8.4.1")
+            if "mail" in cmd:
+                return self.R(False)
+            if "sudo" in cmd or "test -d" in cmd:
+                return self.R(True, "no")
+            return self.R(True, "/usr/bin/x")
+        rows = {r["check"]: r for r in optional_checks(self.ctx(answers))}
+        self.assertTrue(rows["php"]["ok"])
+        self.assertIn("8.4.1", rows["php"]["detail"])
+        self.assertFalse(rows["mail"]["ok"])
+        self.assertIn("notify", rows["mail"]["feature"])
+        self.assertFalse(rows["passwordless sudo"]["ok"])
+        self.assertFalse(rows["page cache dir"]["ok"])
+        self.assertTrue(rows["mysqldump"]["ok"])
+
+    def test_rsync_is_only_checked_over_ssh(self):
+        from blog.ops import optional_checks
+        ok = lambda cmd: self.R(True, "yes")
+        self.assertNotIn("rsync (target)", {r["check"] for r in optional_checks(self.ctx(ok, "local"))})
+        self.assertIn("rsync (target)", {r["check"] for r in optional_checks(self.ctx(ok, "ssh"))})
+
+
+class DoctorFailurePathTests(unittest.TestCase):
+    def test_missing_wordpress_root_is_reported_once_and_fails(self):
+        import os, subprocess, sys, tempfile
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with tempfile.TemporaryDirectory() as d:
+            cfg = os.path.join(d, "c.toml")
+            open(cfg, "w").write('default = "x"\n[sites.x]\ntransport = "local"\npath = "/nonexistent/wp"\nwp_bin = "/nonexistent/wp-cli"\n')
+            r = subprocess.run([sys.executable, os.path.join(root, "bin", "blog"), "--config", cfg, "doctor"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout.count("No such file"), 1)          # the cause appears once...
+        self.assertGreaterEqual(r.stdout.count("skipped"), 4)         # ...the dependent checks say they were skipped
+        self.assertIn("wp-config.php", r.stdout)                      # and the hint says what to fix
+        self.assertNotIn("optional features", r.stdout)
