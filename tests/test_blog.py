@@ -570,3 +570,20 @@ class DoctorFailurePathTests(unittest.TestCase):
         self.assertGreaterEqual(r.stdout.count("skipped"), 4)         # ...the dependent checks say they were skipped
         self.assertIn("wp-config.php", r.stdout)                      # and the hint says what to fix
         self.assertNotIn("optional features", r.stdout)
+
+
+class AgentsDocTests(unittest.TestCase):
+    def test_agents_md_reference_matches_agent_help(self):
+        """AGENTS.md claims its command reference is the output of `blog agent-help`: keep it true."""
+        import os, re, subprocess, sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        doc = open(os.path.join(root, "AGENTS.md"), encoding="utf-8").read()
+        block = re.search(r"## Command reference.*?```\n(.*?)\n```", doc, re.S).group(1)
+        live = subprocess.run([sys.executable, os.path.join(root, "bin", "blog"), "agent-help"], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(block.strip(), live.strip())
+
+    def test_agents_md_has_no_site_specific_strings(self):
+        import os, re
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        doc = open(os.path.join(root, "AGENTS.md"), encoding="utf-8").read()
+        self.assertIsNone(re.search(r"@[\w-]+\.\w+|/home/\w+|\b(?:\d{1,3}\.){3}\d{1,3}\b(?<!127\.0\.0\.1)", doc))

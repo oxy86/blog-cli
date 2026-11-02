@@ -54,7 +54,7 @@ def build_parser():
     p = add("quote", editorial.cmd_quote, "post a quote with attribution + source link (nothing else is added)")
     p.add_argument("title", help="post title")
     p.add_argument("--source", help="who said it, e.g. \"Jane Doe\" or \"Example Corp's CEO\"")
-    p.add_argument("--via", help="where you saw it, e.g. Slashdot (default: the URL's host)")
+    p.add_argument("--via", help="where you saw it, e.g. \"Example News\" (default: the URL's host)")
     p.add_argument("--url", help="link to the original article")
     content_opts(p)
     p.add_argument("--tags", "-t", action="append")
@@ -226,7 +226,7 @@ EDITORIAL
       Body is Markdown, converted to Gutenberg blocks (quotes, lists, code, links, bare YouTube URLs -> embeds).
       File may carry front matter (title/tags/category/slug/date/status) or start with '# Title'.
       Categories must exist (`blog cats`); tags are matched case-insensitively and created if new.
-  blog quote "Title" --source "Who" --via Slashdot --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
+  blog quote "Title" --source "Who" --via "Example News" --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
   blog new ... [--image PATH_OR_URL [--image-alt ..]] [--translit]   front matter also: excerpt, featured_image, featured_alt
       publish / new --publish end with a live check (cache-bypassing fetch: HTTP 200, title present, no error text).
   blog edit ID|slug [--title ..] [--add-tag ..] [--remove-tag ..] [--cat ..] [--status ..] [-f new.md] (no flags + tty = $EDITOR on raw blocks)
@@ -240,7 +240,7 @@ MAINTENANCE / SWISS ARMY
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
   blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
-  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings)
+  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings); --fix-entities shows & < > where the editor had stored entities (preview first)
   blog highlight-cache        rebuild Enlighter's JS/CSS (read-only for web); `update` does this automatically after an Enlighter update
   blog notify [--to EMAIL] [--dry-run] [--heartbeat-days 30]   read-only watch; mails only NEW items (cron-safe: never changes the site)
   blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
@@ -249,6 +249,8 @@ MAINTENANCE / SWISS ARMY
   blog clean-backups [--keep 3] [--older-than DAYS] [--local [DIR]] [--yes]   dry run unless --yes; never deletes the newest
   blog update [core|plugins|themes|slug...] [--yes] [--allow-major] [--include-inactive] [--check URL=TEXT]... [--pause]
       Without --yes it only prints the plan. Applies safe updates, holds back majors / inactive / web-writable plugins.
+      --check /path/=TEXT adds a plugin-specific smoke test (page must contain TEXT) run before and after every update;
+      --pause (humans, tty only) stops after each update for inspection.
       With --yes: health check -> backup -> one update at a time -> health check (browser UA) -> auto-rollback of plugins/themes.
   blog status [--deep]        versions, pending updates, HTTP/TLS, disk, post/user counts
   blog doctor [--fix]         verify connectivity; --fix installs wp-cli on the target; also lists which optional features (mail, sudo, rsync, page cache) work here

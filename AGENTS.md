@@ -3,8 +3,8 @@
 `blog` is a CLI for running a WordPress site — editorial work and maintenance — either over SSH or directly on the server.
 Use it instead of writing one-off scripts. If something isn't covered, add a command to the tool rather than hacking around it.
 
-> Site-specific facts (hostnames, paths, post IDs, incident history) are **not** in this file. If `AGENTS.local.md` and
-> `STATUS.md` exist next to it, read them first; they are intentionally not committed.
+> Site-specific facts (hostnames, paths, post IDs, incident history) are **not** in this file or anywhere in the repository.
+> A maintainer may keep private notes next to it (`AGENTS.local.md`, `STATUS.md`; both git-ignored on purpose): if they exist, read them first.
 
 Run from a checkout: `./bin/blog …` (Python >= 3.11, standard library only). `./bin/blog agent-help` prints the live reference;
 every command takes `--json`, `--site NAME` and `--debug` (prints each command run on the target).
@@ -12,8 +12,8 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
 ## Rules
 
 - **Drafts first.** `blog new` saves a draft unless `--publish` is given. Show the result; publish only when the owner says so.
-- **Don't invent the author's voice.** Post only the text supplied; ask before adding commentary; honour requests such as
-  "don't mention the name".
+- **Don't invent the author's voice.** Post only the text supplied; ask before adding commentary; honour requests to leave
+  out names or details.
 - **Show the plan, then apply.** `blog update` prints a plan; `--yes` applies it. Major versions, inactive plugins and plugins that hold
   web-generated data are held back on purpose — update those *by name*, one at a time, only after discussing them.
 - **Back up before anything risky** (`sql --write`, `search-replace`, deleting users/plugins). `blog backup` takes ~1 min; `blog update --yes` takes one itself.
@@ -26,22 +26,17 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
 
 - **Two different users.** WP-CLI runs as the SSH user; PHP-FPM runs as e.g. `www-data`. In a hardened layout the web user can only *read*
   the code. Anything WP-CLI (or a plugin it loads) creates under `wp-content/uploads/` gets the wrong group and PHP can't write there
-  (this broke a plugin that keeps generated images in `uploads/`). `blog update`/`blog media` fix the group; `blog doctor [--fix]` checks it.
+  (plugins that keep generated files in `uploads/` then fail). `blog update`/`blog media` fix the group; `blog doctor [--fix]` checks it.
 - **Page caches hide breakage.** A plain fetch can return a stale, good copy while visitors get an error. Verify with a cache-busting query
   string (`?blogcheck=123`). The updater's health check does this, requires HTTP 200 + a complete page, and fails on error text
   ("critical error", "not usable", …). It can't know plugin-specific features: after updating a plugin that *renders* something (math,
   galleries, sitemaps, highlighting) look at a page that uses it, uncached.
 - **Before/after an update:** `blog snapshot take before --url /a/page/using/the/plugin/`, update, `snapshot take after`, `snapshot diff before after`
   (lines marked `!` are content changes). `blog security` also flags plugins that wordpress.org has *closed* (it only sends plugin slugs).
-- **Highlighter migration (wp-syntax -> Enlighter):** `blog migrate-code` (dry run first; `--yes` needs a backup < 1 h old; `--restore DIR --yes` undoes).
-  It escapes `& < >` because wp-syntax stored code as raw text, writes straight to the database (a normal `wp post update` fires publish hooks
-  = outbound pingbacks to every link in the post, and bumps modified dates), and keeps today's display of stored entities unless `--decode-entities`.
-  Enlighter builds its JS/CSS into `plugins/enlighter/cache/` on the first page view; with a hardened layout the web user cannot write there, so
-  run `blog highlight-cache` (the updater does it after an Enlighter update). Verify highlighting with a page fetch: it must reference
-  `enlighter/cache/enlighterjs.min.js` and that URL must return 200.
-- **Old plugins break on new PHP:** wp-syntax/GeSHi emitted a PHP warning per code block on PHP 8.4 (a page with many blocks overflowed nginx's header
-  buffer -> 502) and hit a fatal in GeSHi (-> 500). After PHP upgrades, fetch pages that use legacy plugins *uncached* (a purge removes the good cached copy).
-  Look in the vhost error log (`/var/log/nginx/<site>.error.log`, readable by group `adm`) for `PHP Warning`/`PHP Fatal error` bursts.
+- **Legacy plugins can break after a PHP upgrade.** Old code may raise a PHP warning per request or per block, or hit a fatal. A flood of warnings can
+  overflow nginx's FastCGI header buffer (a 502); a fatal gives a 500. After PHP upgrades, fetch the pages that use legacy plugins *uncached*, and look in
+  the vhost error log (e.g. `/var/log/nginx/<site>.error.log`; on Debian-style hosts readable by group `adm`) for `PHP Warning`/`PHP Fatal error` bursts.
+  Remember that purging the page cache also removes a good cached copy of a page that is already broken.
 - **Newlines:** old posts use `\r\n`; the SSH transport hands them back as `\n`. Compare content modulo newline style (`migrate.same_text`).
 - **Don't chain a verification with the next step** (`a && b && c` with `| tail` hides exit codes): check the result, then continue.
 - **Replacing a firewall/security plugin directory:** stage inside the same filesystem, then two quick `mv` renames (a missing plugin file silently
@@ -50,9 +45,9 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
   then judge backup freshness by that directory (read with `sudo -n find`, metadata only; warns at 3 days, or if it is empty/unreadable) instead of the age of `blog backup` copies.
 - **Shared caches:** if several sites share one nginx FastCGI cache, never wipe it — `blog cache purge` deletes only this site's entries.
 - **Restores from tar as a non-root user don't restore group ownership** — re-apply the web group (the tool does).
-- **Firewall plugins block clients that make "multiple erroneous requests"** (repeated 404s, failed logins). Test admin-ish endpoints from
-  the server (`curl --resolve host:443:127.0.0.1 …` via `blog sh`), keep probe volume low (>=0.5 s apart, one 404 fetch at most, no
-  extra query strings on `wp-login`/`wp-admin`/`feed`), never deliberately fail logins.
+- **Your own diagnostics can trip a firewall plugin and lock the owner out.** Login-protection plugins treat repeated 404s or failed logins as hostile.
+  When you must test an admin-ish endpoint, do it from the server (`curl --resolve host:443:127.0.0.1 …` via `blog sh`), with a few requests spaced
+  out, and never deliberately fail a login or add query strings to `wp-login`/`wp-admin`/`feed`.
 - **Don't guess URLs/slugs;** use `blog show ID` for the real permalink. Some sites 403 curl's default User-Agent — send a browser UA.
 - **Before updating a theme/plugin, diff the installed copy against the wp.org original** (download the zip into a scratch dir) to see
   whether local edits would be lost. After a theme update, purge the page cache.
@@ -71,6 +66,26 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
 - **Editing existing posts:** `blog edit ID` with no flags opens the *raw* block HTML; `-f new.md` replaces the whole body with converted
   Markdown. Don't round-trip an old post through Markdown unless the owner wants it rewritten.
 
+## Notes on specific commands
+
+- **`blog migrate-code`** rewrites old `wp-syntax` `<pre lang="…">` blocks as Enlighter blocks. Dry run first; `--yes` needs a backup under an hour old;
+  `--restore DIR --yes` undoes it. It escapes `& < >` (wp-syntax stored code as raw text) and writes straight to the database, because a normal
+  `wp post update` fires publish hooks (outbound pingbacks to every link in the post) and bumps modified dates. Stored entities keep their current display
+  by default; `--fix-entities` repairs them afterwards (preview first).
+- **`blog highlight-cache`**: Enlighter builds its JS/CSS into `plugins/enlighter/cache/` on the first page view, and in a hardened layout the web user
+  cannot write there, so run this after installing or updating Enlighter (the updater does it for updates). Verify with a page fetch: the page must reference
+  `enlighter/cache/enlighterjs.min.js`, and that URL must return 200.
+- **`blog notify`** is the safe thing to schedule: it never changes the site and mails only new findings. `blog auto-update` is optional and its health
+  check is shallow (home page and newest post), so don't schedule it without smoke checks that cover the plugins that render things.
+
+## Working on this repository
+
+- **Keep site facts out of tracked files:** no real hostnames, e-mail addresses, IPs, post IDs or incident narratives. Put them in the git-ignored
+  `AGENTS.local.md` / `STATUS.md`. Never `git add -f` an ignored file; check `git status` and `git diff --cached` before every commit.
+- **Commit or push only when the owner asks.** Run `python3 -m unittest discover -s tests` first.
+- **The command reference below is generated from `blog agent-help`.** Change the help text in `blog/cli.py`, then paste the new output here;
+  a unit test fails if the two differ.
+
 ## Command reference (output of `blog agent-help`)
 
 ```
@@ -82,7 +97,7 @@ EDITORIAL
       Body is Markdown, converted to Gutenberg blocks (quotes, lists, code, links, bare YouTube URLs -> embeds).
       File may carry front matter (title/tags/category/slug/date/status) or start with '# Title'.
       Categories must exist (`blog cats`); tags are matched case-insensitively and created if new.
-  blog quote "Title" --source "Who" --via Slashdot --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
+  blog quote "Title" --source "Who" --via "Example News" --url URL [--tags ..] [--cat ..] [--publish]   (quote on stdin; adds nothing else)
   blog new ... [--image PATH_OR_URL [--image-alt ..]] [--translit]   front matter also: excerpt, featured_image, featured_alt
       publish / new --publish end with a live check (cache-bypassing fetch: HTTP 200, title present, no error text).
   blog edit ID|slug [--title ..] [--add-tag ..] [--remove-tag ..] [--cat ..] [--status ..] [-f new.md] (no flags + tty = $EDITOR on raw blocks)
@@ -95,7 +110,8 @@ MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes
   blog auto-update [--dry-run] [--notify EMAIL]   non-major updates only, mails only if needed (for cron on the server)
   blog deploy [--dest ~/blog-cli]   copy the tool to the server and write its config
-  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks; --fix-entities shows & < > where the editor had stored entities (preview first)
+  blog prune-spam-users [--yes] [--keep ID] [--limit N]   delete never-active subscriber accounts (dry run unless --yes; needs a backup <1 h old)
+  blog migrate-code [--ids ..] [--decode-entities | --fix-entities] [--yes] | --restore DIR --yes   wp-syntax <pre lang> -> Enlighter blocks (direct DB write, no hooks/pings); --fix-entities shows & < > where the editor had stored entities (preview first)
   blog highlight-cache        rebuild Enlighter's JS/CSS (read-only for web); `update` does this automatically after an Enlighter update
   blog notify [--to EMAIL] [--dry-run] [--heartbeat-days 30]   read-only watch; mails only NEW items (cron-safe: never changes the site)
   blog security [--offline]   read-only review (checksums, admins, perms, code in uploads, plugin upkeep, TLS/disk/backups); exit 1 on FAIL
