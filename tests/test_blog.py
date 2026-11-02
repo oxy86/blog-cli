@@ -587,3 +587,64 @@ class AgentsDocTests(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         doc = open(os.path.join(root, "AGENTS.md"), encoding="utf-8").read()
         self.assertIsNone(re.search(r"@[\w-]+\.\w+|/home/\w+|\b(?:\d{1,3}\.){3}\d{1,3}\b(?<!127\.0\.0\.1)", doc))
+
+
+class CatsAddTests(unittest.TestCase):
+    class WP:
+        def __init__(self, out="42"):
+            self.calls, self.out = [], out
+
+        def terms(self, tax):
+            return [{"term_id": 1, "name": "News", "slug": "news", "count": 3},
+                    {"term_id": 2, "name": "Ιστορίες", "slug": "istories", "count": 0}]
+
+        def text(self, *a, **k):
+            self.calls.append((a, k))
+            return self.out
+
+    class Ctx:
+        json = False
+
+        def __init__(self, wp):
+            self.wp = wp
+
+        def emit(self, data, human=None):
+            self.data = data
+
+    def _run(self, wp=None, **kw):
+        import types
+        from blog.editorial import cmd_cats
+        wp = wp or self.WP()
+        ns = dict(action="add", name="Tech", slug=None, parent=None, description=None, dry_run=False)
+        ns.update(kw)
+        ctx = self.Ctx(wp)
+        cmd_cats(ctx, types.SimpleNamespace(**ns))
+        return wp, ctx
+
+    def test_creates_category_and_audits(self):
+        wp, ctx = self._run(parent="news", slug="tech")
+        args, kw = wp.calls[0]
+        self.assertEqual(args[:4], ("term", "create", "category", "Tech"))
+        self.assertIn("--parent=1", args)
+        self.assertIn("--slug=tech", args)
+        self.assertTrue(kw["mutating"])
+        self.assertEqual(ctx.data["term_id"], 42)
+
+    def test_duplicate_name_or_slug_refused(self):
+        for kw in ({"name": "news"}, {"name": "Other", "slug": "news"}):
+            with self.assertRaises(BlogError):
+                self._run(**kw)
+
+    def test_unknown_parent_refused_and_nothing_written(self):
+        wp = self.WP()
+        with self.assertRaises(BlogError):
+            self._run(wp, parent="nope")
+        self.assertEqual(wp.calls, [])
+
+    def test_dry_run_writes_nothing(self):
+        wp, _ = self._run(dry_run=True)
+        self.assertEqual(wp.calls, [])
+
+    def test_unparseable_result_is_an_error(self):
+        with self.assertRaises(BlogError):
+            self._run(self.WP(out="Error: boom"))

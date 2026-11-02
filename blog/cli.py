@@ -98,7 +98,13 @@ def build_parser():
     p.add_argument("--yes", action="store_true")
 
     add("tags", editorial.cmd_tags, "list tags by usage")
-    add("cats", editorial.cmd_cats, "list categories", aliases=["categories"])
+    p = add("cats", editorial.cmd_cats, "list categories, or create one with `cats add NAME`", aliases=["categories"])
+    p.add_argument("action", nargs="?", choices=["add"])
+    p.add_argument("name", nargs="?", help="with add: the new category's name")
+    p.add_argument("--slug", help="with add: slug (default: derived from the name)")
+    p.add_argument("--parent", help="with add: parent category (name, slug or ID)")
+    p.add_argument("--description", help="with add: description")
+    p.add_argument("--dry-run", action="store_true", help="with add: show what would be created")
     p = add("media", editorial.cmd_media_add, "upload an image/file (path or URL) to the media library", aliases=["upload"])
     p.add_argument("source")
     p.add_argument("--title")
@@ -234,6 +240,7 @@ EDITORIAL
   blog publish ID | blog unpublish ID | blog trash ID [--force --yes]
   blog media PATH_OR_URL [--alt ..] [--attach ID --featured]   -> prints attachment URL + markdown
   blog tags | blog cats
+  blog cats add "Name" [--slug s] [--parent NAME|SLUG|ID] [--description ..] [--dry-run]   create a category (refuses duplicates)
 
 MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes

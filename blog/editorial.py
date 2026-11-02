@@ -355,8 +355,47 @@ def cmd_tags(ctx, a):
 
 
 def cmd_cats(ctx, a):
+    if a.action == "add":
+        return _cat_add(ctx, a)
+    if a.name:
+        raise BlogError(f"unexpected argument: {a.name}", hint='to create one: blog cats add "Name"')
     rows = sorted(ctx.wp.terms("category"), key=lambda r: r["name"].lower())
     ctx.emit(rows, lambda: print(table(rows, ["term_id", "name", "slug", "count"], ["ID", "NAME", "SLUG", "POSTS"])))
+
+
+def _cat_add(ctx, a):
+    name = (a.name or "").strip()
+    if not name:
+        raise BlogError("category name missing", hint='blog cats add "Name" [--slug s] [--parent X] [--description ..]')
+    existing = ctx.wp.terms("category")
+    slug = (a.slug or md.slugify(name)).lower()
+    for t in existing:
+        if t["name"].lower() == name.lower() or t["slug"].lower() == slug:
+            raise BlogError(f"category already exists: {t['name']} (slug {t['slug']}, ID {t['term_id']})")
+    args = ["term", "create", "category", name, "--porcelain"]
+    if a.slug:
+        args.append(f"--slug={a.slug}")
+    if a.description:
+        args.append(f"--description={a.description}")
+    parent = None
+    if a.parent:
+        ref = a.parent.strip().lower()
+        parent = next((t for t in existing if ref in (str(t["term_id"]), t["name"].lower(), t["slug"].lower())), None)
+        if not parent:
+            names = ", ".join(sorted(t["name"] for t in existing))
+            raise BlogError(f"unknown parent category: {a.parent}", hint=f"existing categories: {names}")
+        args.append(f"--parent={parent['term_id']}")
+    if a.dry_run:
+        ctx.emit({"dry_run": True, "name": name, "slug": slug, "parent": parent and parent["name"]},
+                 f"dry run: would create category {name!r}" + (f" under {parent['name']!r}" if parent else ""))
+        return
+    out = ctx.wp.text(*args, mutating=True)
+    m = re.search(r"\d+", out)
+    if not m:
+        raise BlogError("category was not created", hint=out[:300])
+    tid = int(m.group())
+    ctx.emit({"term_id": tid, "name": name, "slug": a.slug or slug},
+             f"created category {name!r} (ID {tid})" + (f" under {parent['name']!r}" if parent else ""))
 
 
 def _media_upload(ctx, a):

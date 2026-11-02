@@ -57,7 +57,7 @@ every command takes `--json`, `--site NAME` and `--debug` (prints each command r
 - **Markdown → Gutenberg blocks.** Supported: paragraphs, headings, bold/italic/strike/code, links, images, `>` quotes (a final `— Source`
   line becomes the citation), flat lists, fenced code, `---`, and a bare YouTube/Vimeo URL on its own line (becomes an embed). Not
   supported: tables, nested lists. HTML in the input is escaped (`--html` passes raw block HTML through). Single newlines join (CommonMark);
-  `--breaks` keeps them. Categories must already exist (`blog cats`); tags are matched case-insensitively and created if new.
+  `--breaks` keeps them. Categories must already exist (`blog cats`; create with `blog cats add`); tags are matched case-insensitively and created if new.
 - **Scheduling:** WordPress turns a `future` post into `publish` if its GMT date is already past, so the tool always sends
   `post_date_gmt` with `post_date` and refuses past dates. Never set `--post_status=future` via raw `wp post update` without a GMT date.
 - **Testing editorial commands:** use throwaway drafts titled `ZZ …` (never `publish` them — use `private`/`future` to stand in),
@@ -105,6 +105,7 @@ EDITORIAL
   blog publish ID | blog unpublish ID | blog trash ID [--force --yes]
   blog media PATH_OR_URL [--alt ..] [--attach ID --featured]   -> prints attachment URL + markdown
   blog tags | blog cats
+  blog cats add "Name" [--slug s] [--parent NAME|SLUG|ID] [--description ..] [--dry-run]   create a category (refuses duplicates)
 
 MAINTENANCE / SWISS ARMY
   blog backup [--db|--files] [--label x] [--pull DIR]   full backup on the server (mode 700); blog backups; blog restore NAME --db --files --yes
